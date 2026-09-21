@@ -1,0 +1,74 @@
+.wb-calendar {
+  --fc-border-color: #1e3a4a;
+  --fc-page-bg-color: #010b13;
+  --fc-neutral-bg-color: #0d1b2a;
+  --fc-list-event-hover-bg-color: #0d1b2a;
+  --fc-today-bg-color: rgba(255, 107, 0, 0.06);
+  --fc-now-indicator-color: #ff6b00;
+  --fc-event-bg-color: rgba(255, 107, 0, 0.22);
+  --fc-event-border-color: #ff6b00;
+  --fc-event-text-color: #f0f2f5;
+  --fc-button-bg-color: transparent;
+  --fc-button-border-color: #1e3a4a;
+  --fc-button-hover-bg-color: #0d1b2a;
+  --fc-button-hover-border-color: #ff6b00;
+  --fc-button-active-bg-color: rgba(255, 107, 0, 0.16);
+  --fc-button-active-border-color: #ff6b00;
+  color: #f0f2f5;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+
+.wb-calendar .fc {
+  background: #010b13;
+}
+
+.wb-calendar .fc-toolbar-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #f0f2f5;
+}
+
+.wb-calendar .fc .fc-button {
+  color: #7a9ab0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 4px 10px;
+  border-radius: 2px;
+  text-transform: uppercase;
+  box-shadow: none;
+}
+
+.wb-calendar .fc .fc-button-primary:not(:disabled).fc-button-active,
+.wb-calendar .fc .fc-button-primary:not(:disabled):active {
+  color: #ff6b00;
+}
+
+.wb-calendar .fc-col-header-cell {
+  background: #0d1b2a;
+  color: #7a9ab0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 6px 0;
+}
+
+.wb-calendar .fc-timegrid-slot,
+.wb-calendar .fc-timegrid-slot-label {
+  color: #7a9ab0;
+  font-size: 10px;
+}
+
+.wb-calendar .fc-event {
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.wb-calendar .fc-event.wb-approved { background: rgba(0, 200, 81, 0.22); border-color: #00c851; }
+.wb-calendar .fc-event.wb-submitted { background: rgba(250, 180, 60, 0.22); border-color: #fab43c; }
+.wb-calendar .fc-event.wb-rejected { background: rgba(239, 68, 68, 0.22); border-color: #ef4444; }
+.wb-calendar .fc-event.wb-cancelled { background: rgba(120, 120, 120, 0.2); border-color: #6c7480; }

@@ -1,0 +1,54 @@
+MASTER SERVICES AGREEMENT
+
+Between: Northwind Technologies Pvt Ltd ("Client")
+And:     WorkLedger Staffing Services ("Vendor")
+
+--------------------------------------------------------------------------
+1. TERM
+
+This Agreement is effective from 1 April 2026 and shall expire on
+31 March 2027 unless renewed in writing by both parties.
+
+--------------------------------------------------------------------------
+2. RATES
+
+The hourly rate for Senior Engineers shall be INR 2,400 per hour.
+Junior Engineers are billed at INR 1,100 per hour.
+Overtime, where pre-approved in writing, is billed at 1.5 x the standard rate.
+The total contract value shall not exceed INR 9,600,000.
+
+--------------------------------------------------------------------------
+3. BILLING AND PAYMENT
+
+Engagement is on a time and materials basis.
+Invoices shall be raised monthly in arrears, itemised by role and by resource.
+Invoices are payable within 45 days of receipt.
+Late payment attracts interest of 1.5% per month on the outstanding balance.
+
+Only hours recorded in the Vendor's timesheet system and approved by the
+Client's delegated manager are eligible for invoicing. Unapproved hours shall
+not be billed under any circumstances.
+
+--------------------------------------------------------------------------
+4. MILESTONES
+
+Milestone 1 - Discovery and solution design signed off: INR 450,000
+Milestone 2 - Integration environment delivered: INR 675,000
+Milestone 3 - Production release accepted by Client: INR 900,000
+
+Milestone payments become due only on written acceptance by the Client.
+
+--------------------------------------------------------------------------
+5. TERMINATION
+
+Either party may terminate this Agreement on 30 days prior written notice.
+Work completed and approved before the effective date of termination remains
+payable under the terms of Section 3.
+
+--------------------------------------------------------------------------
+6. SIGNATURES
+
+For Northwind Technologies Pvt Ltd        For WorkLedger Staffing Services
+
+_______________________                    _______________________
+Authorised Signatory                       Authorised Signatory

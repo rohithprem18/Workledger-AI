@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; }
+
+body {
+  background: #010b13;
+  color: #f0f2f5;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root { display: flex; min-height: 100vh; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #010b13; }
+::-webkit-scrollbar-thumb { background: #1e3a4a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #ff6b00; }
+
+input, select, textarea {
+  background: #0d1b2a;
+  border: 1px solid #1e3a4a;
+  color: #f0f2f5;
+  border-radius: 3px;
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.12s;
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus { border-color: #ff6b00; }
+select option { background: #0d1b2a; }
+
+table { border-collapse: collapse; width: 100%; }
+th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #7a9ab0;
+  padding: 7px 12px;
+  border-bottom: 1px solid #1e3a4a;
+  white-space: nowrap;
+}
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #0d1b2a;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  vertical-align: middle;
+}
+tr:hover td { background: #111d2b; }
+
+.status-pill {
+  display: inline-block;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.s-active, .s-approved   { background: #00c85115; color: #00c851; border: 1px solid #00c85135; }
+.s-pending, .s-submitted  { background: #ff6b0015; color: #ff6b00; border: 1px solid #ff6b0035; }
+.s-rejected, .s-cancelled { background: #ef444415; color: #ef4444; border: 1px solid #ef444435; }
+.s-draft                  { background: #7a9ab015; color: #7a9ab0; border: 1px solid #7a9ab035; }
+.s-hourly                 { background: #3b82f615; color: #3b82f6; border: 1px solid #3b82f635; }
