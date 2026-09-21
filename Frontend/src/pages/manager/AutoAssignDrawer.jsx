@@ -2,49 +2,32 @@ import { useEffect, useState } from 'react'
 import Drawer from '../../components/Drawer'
 import Btn from '../../components/Btn'
 import { suggestAssignments, bulkAssign, getEligibleEmployees } from '../../api'
+import { Alert, EmptyState, Field, LoadingRows, errorText, fmtRange, initials } from '../../components/ui'
 
-const LABEL = {
-  display: 'block',
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  color: '#7a9ab0',
-  fontFamily: 'ui-monospace, Consolas, monospace',
-  marginBottom: 4,
-  textTransform: 'uppercase',
-}
-const ERR = {
-  padding: '10px 16px',
-  background: '#ef444415',
-  color: '#ef4444',
-  borderLeft: '2px solid #ef4444',
-  marginBottom: 16,
-  fontFamily: 'monospace',
-  fontSize: 12,
+/** The API ranks longest-idle first: a very large score means "never worked". */
+function idleLabel(score) {
+  if (score >= 100000) return 'Never billed — top priority'
+  if (!score) return 'Worked recently'
+  return `Idle ${score} day${score === 1 ? '' : 's'}`
 }
 
-function scoreBar(score) {
-  const pct = Math.round(score * 100)
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-      <div style={{
-        width: 48, height: 4, background: '#1e3a4a', borderRadius: 2, overflow: 'hidden',
-      }}>
-        <div style={{ width: `${pct}%`, height: '100%', background: '#ff6b00', borderRadius: 2 }} />
-      </div>
-      <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#7a9ab0' }}>{pct}%</span>
-    </div>
-  )
-}
+const hhmm = (t) => (t ? String(t).slice(0, 5) : '')
+const withSeconds = (t) => (t.length === 5 ? `${t}:00` : t)
 
+/**
+ * Review screen for the allocator's proposal.
+ *
+ * The suggestion is only a starting point: the manager can swap anyone, change
+ * hours, and leave slots empty. Confirming sends everything as one batch, which
+ * the API applies all-or-nothing through the same validated write path as a
+ * manual assignment.
+ */
 export default function AutoAssignDrawer({ contractId, open, onClose, onSuccess }) {
   const [suggestions, setSuggestions] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [confirming, setConfirming] = useState(false)
-  // edits keyed by `${requirementId}_${slotIndex}` — manager overrides
   const [edits, setEdits] = useState({})
-  // swap state keyed same — { open, loading, options }
   const [swap, setSwap] = useState({})
 
   useEffect(() => {
@@ -55,239 +38,210 @@ export default function AutoAssignDrawer({ contractId, open, onClose, onSuccess 
     setSuggestions([])
     setLoading(true)
     suggestAssignments(contractId)
-      .then(data => setSuggestions(Array.isArray(data) ? data : []))
-      .catch(e => setError(typeof e === 'string' ? e : 'Failed to load suggestions'))
+      .then((data) => setSuggestions(Array.isArray(data) ? data : []))
+      .catch((e) => setError(errorText(e, 'Could not load suggestions')))
       .finally(() => setLoading(false))
   }, [open, contractId])
 
-  function rowKey(s) {
-    return `${s.requirementId}_${s.slotIndex}`
-  }
+  const key = (s) => `${s.requirementId}_${s.slotIndex}`
 
   function getEdit(s) {
-    return edits[rowKey(s)] ?? {
-      employeeId: s.employeeId ?? null,
-      employeeName: s.employeeName ?? null,
-      plannedStartTime: s.plannedStartTime ? s.plannedStartTime.slice(0, 5) : '09:00',
-      plannedEndTime: s.plannedEndTime ? s.plannedEndTime.slice(0, 5) : '17:00',
-    }
+    return (
+      edits[key(s)] ?? {
+        employeeId: s.employeeId ?? null,
+        employeeName: s.employeeName ?? null,
+        plannedStartTime: hhmm(s.plannedStartTime) || '09:00',
+        plannedEndTime: hhmm(s.plannedEndTime) || '17:00',
+      }
+    )
   }
 
   function updateEdit(s, patch) {
-    setEdits(prev => ({ ...prev, [rowKey(s)]: { ...getEdit(s), ...patch } }))
+    setEdits((prev) => ({ ...prev, [key(s)]: { ...getEdit(s), ...patch } }))
   }
 
   async function openSwap(s) {
-    const k = rowKey(s)
-    setSwap(prev => ({ ...prev, [k]: { open: true, loading: true, options: [] } }))
+    const k = key(s)
+    setSwap((prev) => ({ ...prev, [k]: { open: true, loading: true, options: [] } }))
     try {
-      const opts = await getEligibleEmployees(s.requirementId, s.startDate, s.endDate)
-      setSwap(prev => ({ ...prev, [k]: { open: true, loading: false, options: Array.isArray(opts) ? opts : [] } }))
+      const options = await getEligibleEmployees(s.requirementId, s.startDate, s.endDate)
+      setSwap((prev) => ({ ...prev, [k]: { open: true, loading: false, options: options ?? [] } }))
     } catch {
-      setSwap(prev => ({ ...prev, [k]: { open: true, loading: false, options: [] } }))
+      setSwap((prev) => ({ ...prev, [k]: { open: true, loading: false, options: [] } }))
     }
   }
 
-  function pickEmployee(s, emp) {
-    updateEdit(s, { employeeId: emp.id, employeeName: `${emp.firstName} ${emp.lastName}` })
-    setSwap(prev => ({ ...prev, [rowKey(s)]: { ...prev[rowKey(s)], open: false } }))
+  function pick(s, employee) {
+    updateEdit(s, {
+      employeeId: employee?.id ?? null,
+      employeeName: employee ? `${employee.firstName} ${employee.lastName}` : null,
+    })
+    setSwap((prev) => ({ ...prev, [key(s)]: { ...prev[key(s)], open: false } }))
   }
 
-  function closeSwap(k) {
-    setSwap(prev => ({ ...prev, [k]: { ...prev[k], open: false } }))
-  }
+  const filled = suggestions.filter((s) => !!getEdit(s).employeeId)
+  const empty = suggestions.length - filled.length
 
-  const hasUnresolved = suggestions.some(s => {
-    if (s.status !== 'UNASSIGNABLE') return false
-    return !getEdit(s).employeeId
-  })
-
-  async function handleConfirm(skipUnassignable) {
+  async function confirm() {
     setConfirming(true)
     setError(null)
     try {
-      const items = suggestions
-        .map(s => ({ s, e: getEdit(s) }))
-        .filter(({ e }) => !!e.employeeId)
-        .map(({ s, e }) => ({
-          requirementId: s.requirementId,
-          employeeId: e.employeeId,
-          startDate: s.startDate,
-          endDate: s.endDate,
-          plannedStartTime: e.plannedStartTime.length === 5 ? e.plannedStartTime + ':00' : e.plannedStartTime,
-          plannedEndTime: e.plannedEndTime.length === 5 ? e.plannedEndTime + ':00' : e.plannedEndTime,
-        }))
-
-      if (items.length === 0) {
-        setError('No assignable slots — swap employees for unassignable rows first')
-        setConfirming(false)
-        return
-      }
-
-      await bulkAssign({ assignments: items })
+      await bulkAssign({
+        assignments: filled.map((s) => {
+          const e = getEdit(s)
+          return {
+            requirementId: s.requirementId,
+            employeeId: e.employeeId,
+            startDate: s.startDate,
+            endDate: s.endDate,
+            plannedStartTime: withSeconds(e.plannedStartTime),
+            plannedEndTime: withSeconds(e.plannedEndTime),
+          }
+        }),
+      })
       onSuccess?.()
       onClose()
     } catch (e) {
-      setError(typeof e === 'string' ? e : 'Bulk assign failed')
+      setError(errorText(e, 'Bulk assignment failed'))
     } finally {
       setConfirming(false)
     }
   }
 
-  const assignableCount = suggestions.filter(s => !!getEdit(s).employeeId).length
-  const unassignableCount = suggestions.filter(s => !getEdit(s).employeeId).length
-
   return (
-    <Drawer open={open} onClose={onClose} title="AUTO-ASSIGN REVIEW" width={760}>
-      {error && <div style={ERR}>ERROR: {error}</div>}
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="Auto-assign"
+      subtitle="Longest-idle contractors first, filtered by the same rules as manual assignment."
+      footer={
+        suggestions.length > 0 && (
+          <>
+            <Btn variant="secondary" onClick={onClose}>
+              Cancel
+            </Btn>
+            <Btn icon="check" loading={confirming} disabled={filled.length === 0} onClick={confirm}>
+              Assign {filled.length} {filled.length === 1 ? 'person' : 'people'}
+            </Btn>
+          </>
+        )
+      }
+    >
+      {error && <Alert>{error}</Alert>}
 
       {loading ? (
-        <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>
-          Running assignment algorithm...
-        </div>
+        <LoadingRows rows={4} />
       ) : suggestions.length === 0 ? (
-        <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>
-          No unfulfilled slots found for this contract.
-        </div>
+        <EmptyState icon="checkCircle" title="Fully staffed">
+          Every requirement on this contract already has its headcount.
+        </EmptyState>
       ) : (
         <>
-          <div style={{ marginBottom: 16, fontFamily: 'monospace', fontSize: 11, color: '#7a9ab0' }}>
-            {suggestions.length} slot{suggestions.length !== 1 ? 's' : ''} ·{' '}
-            <span style={{ color: '#00c851' }}>{assignableCount} suggested</span>
-            {unassignableCount > 0 && (
-              <span style={{ color: '#ef4444' }}> · {unassignableCount} unassignable</span>
-            )}
+          <div className="cluster">
+            <span className="badge badge-success">{filled.length} proposed</span>
+            {empty > 0 && <span className="badge badge-error">{empty} without a match</span>}
           </div>
+          {empty > 0 && (
+            <p className="t-sm t-mute mt-8">
+              Empty slots are skipped. Pick someone manually, or leave them for later.
+            </p>
+          )}
 
-          <table style={{ marginBottom: 20, width: '100%', fontSize: 11 }}>
-            <thead>
-              <tr>
-                <th>Skill / Slot</th>
-                <th>Employee</th>
-                <th>Score</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {suggestions.map(s => {
-                const k = rowKey(s)
-                const e = getEdit(s)
-                const unassignable = !e.employeeId
-                const swapS = swap[k] ?? { open: false, loading: false, options: [] }
-
-                return (
-                  <tr
-                    key={k}
-                    style={{ background: unassignable ? '#ef444408' : undefined }}
-                  >
-                    <td>
-                      <div style={{ color: '#f0f2f5', fontWeight: 600 }}>{s.skillName}</div>
-                      <div style={{ color: '#7a9ab0', fontSize: 10 }}>
-                        slot {s.slotIndex} · {s.startDate} → {s.endDate}
+          <div className="stack gap-12 mt-16">
+            {suggestions.map((s) => {
+              const k = key(s)
+              const e = getEdit(s)
+              const swapState = swap[k] ?? { open: false, loading: false, options: [] }
+              return (
+                <div key={k} className={`card card-pad-sm${e.employeeId ? '' : ' '}`}>
+                  <div className="row between gap-8">
+                    <div>
+                      <div className="t-label">
+                        {s.skillName} <span className="t-mute">· slot {s.slotIndex + 1}</span>
                       </div>
-                    </td>
-                    <td>
-                      {unassignable && !swapS.open ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: '#ef4444', fontFamily: 'monospace', fontSize: 10 }}>
-                            NO MATCH
-                          </span>
-                          <Btn small variant="ghost" onClick={() => openSwap(s)}>
-                            PICK
-                          </Btn>
-                        </div>
-                      ) : swapS.open ? (
-                        <div>
-                          {swapS.loading ? (
-                            <span style={{ color: '#7a9ab0', fontSize: 10, fontFamily: 'monospace' }}>
-                              loading...
-                            </span>
-                          ) : swapS.options.length === 0 ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ color: '#ef4444', fontSize: 10, fontFamily: 'monospace' }}>
-                                none eligible
-                              </span>
-                              <Btn small variant="ghost" onClick={() => closeSwap(k)}>✕</Btn>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <select
-                                style={{ fontSize: 11, padding: '2px 4px' }}
-                                defaultValue=""
-                                onChange={ev => {
-                                  const emp = swapS.options.find(o => o.id === ev.target.value)
-                                  if (emp) pickEmployee(s, emp)
-                                }}
-                              >
-                                <option value="" disabled>— select —</option>
-                                {swapS.options.map(emp => (
-                                  <option key={emp.id} value={emp.id}>
-                                    {emp.firstName} {emp.lastName}
-                                  </option>
-                                ))}
-                              </select>
-                              <Btn small variant="ghost" onClick={() => closeSwap(k)}>✕</Btn>
-                            </div>
+                      <div className="t-sm t-mute">{fmtRange(s.startDate, s.endDate)}</div>
+                    </div>
+                    {s.status === 'SUGGESTED' && e.employeeId === s.employeeId && (
+                      <span className="badge badge-violet badge-plain">Suggested</span>
+                    )}
+                  </div>
+
+                  <div className="row gap-12 mt-12">
+                    {e.employeeId ? (
+                      <>
+                        <span className="avatar avatar-sm">{initials(e.employeeName ?? '')}</span>
+                        <div className="grow">
+                          <div className="t-label">{e.employeeName}</div>
+                          {e.employeeId === s.employeeId && (
+                            <div className="t-sm t-mute">{idleLabel(s.score)}</div>
                           )}
                         </div>
+                      </>
+                    ) : (
+                      <span className="grow t-sm t-error">No eligible contractor found</span>
+                    )}
+                    {!swapState.open && (
+                      <Btn small variant="secondary" onClick={() => openSwap(s)}>
+                        {e.employeeId ? 'Change' : 'Pick'}
+                      </Btn>
+                    )}
+                  </div>
+
+                  {swapState.open && (
+                    <div className="mt-12">
+                      {swapState.loading ? (
+                        <div className="t-sm t-mute">Finding eligible contractors…</div>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: '#f0f2f5' }}>{e.employeeName}</span>
-                          <Btn small variant="ghost" onClick={() => openSwap(s)}>
-                            CHANGE
-                          </Btn>
+                        <div className="row gap-8">
+                          <select
+                            defaultValue={e.employeeId ?? ''}
+                            onChange={(ev) =>
+                              pick(s, swapState.options.find((o) => o.id === ev.target.value) ?? null)
+                            }
+                            aria-label="Choose contractor"
+                          >
+                            <option value="">Leave empty</option>
+                            {swapState.options.map((o) => (
+                              <option key={o.id} value={o.id}>
+                                {o.firstName} {o.lastName}
+                              </option>
+                            ))}
+                          </select>
+                          <Btn
+                            small
+                            variant="ghost"
+                            icon="x"
+                            aria-label="Close"
+                            onClick={() =>
+                              setSwap((prev) => ({ ...prev, [k]: { ...prev[k], open: false } }))
+                            }
+                          />
                         </div>
                       )}
-                    </td>
-                    <td>
-                      {s.status === 'SUGGESTED' ? scoreBar(s.score) : (
-                        <span style={{ color: '#7a9ab0', fontSize: 10 }}>—</span>
-                      )}
-                    </td>
-                    <td>
-                      <input
-                        type="time"
-                        value={e.plannedStartTime}
-                        onChange={ev => updateEdit(s, { plannedStartTime: ev.target.value })}
-                        style={{ fontSize: 11, padding: '2px 4px', width: 90 }}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="time"
-                        value={e.plannedEndTime}
-                        onChange={ev => updateEdit(s, { plannedEndTime: ev.target.value })}
-                        style={{ fontSize: 11, padding: '2px 4px', width: 90 }}
-                      />
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                    </div>
+                  )}
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Btn
-              onClick={() => handleConfirm(false)}
-              disabled={confirming || hasUnresolved}
-            >
-              {confirming ? 'CREATING...' : `CONFIRM ALL (${assignableCount})`}
-            </Btn>
-            {hasUnresolved && (
-              <Btn
-                variant="ghost"
-                onClick={() => handleConfirm(true)}
-                disabled={confirming}
-              >
-                SKIP UNASSIGNABLE & CONFIRM ({assignableCount})
-              </Btn>
-            )}
-            {hasUnresolved && (
-              <span style={{ color: '#ef4444', fontFamily: 'monospace', fontSize: 10 }}>
-                {unassignableCount} slot{unassignableCount !== 1 ? 's' : ''} need manual pick
-              </span>
-            )}
+                  {e.employeeId && (
+                    <div className="field-row mt-12">
+                      <Field label="Starts">
+                        <input
+                          type="time"
+                          value={e.plannedStartTime}
+                          onChange={(ev) => updateEdit(s, { plannedStartTime: ev.target.value })}
+                        />
+                      </Field>
+                      <Field label="Ends">
+                        <input
+                          type="time"
+                          value={e.plannedEndTime}
+                          onChange={(ev) => updateEdit(s, { plannedEndTime: ev.target.value })}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </>
       )}

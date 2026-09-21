@@ -1,59 +1,79 @@
+import { useState } from 'react'
 import { getApprovedWorklogs } from '../../api'
 import { useFetch } from '../../hooks/useFetch'
 import PageHeader from '../../components/PageHeader'
 import StatusPill from '../../components/StatusPill'
+import {
+  Alert,
+  Card,
+  DataTable,
+  EmptyState,
+  LoadingRows,
+  Stat,
+  fmtDate,
+  fmtDateTime,
+  hours,
+} from '../../components/ui'
 
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
-}
-
+/** Approved time — the immutable record hourly invoices are built from. */
 export default function Worklogs() {
   const { data, loading, error } = useFetch(getApprovedWorklogs, [])
-  const logs = data ?? []
+  const [query, setQuery] = useState('')
+
+  const all = data ?? []
+  const rows = all.filter((w) => (w.employeeName ?? '').toLowerCase().includes(query.toLowerCase()))
+  const minutes = rows.reduce((n, w) => n + (w.totalActualMinutes ?? 0), 0)
+  const people = new Set(rows.map((w) => w.employeeId)).size
+
+  const columns = [
+    { key: 'employee', header: 'Contractor', primary: true, render: (w) => w.employeeName ?? '—' },
+    { key: 'date', header: 'Worked', render: (w) => fmtDate(w.workDate) },
+    { key: 'approved', header: 'Approved', render: (w) => fmtDateTime(w.approvedAt), hideOnMobile: true },
+    { key: 'status', header: 'Status', render: (w) => <StatusPill value={w.status} /> },
+    { key: 'hours', header: 'Hours', align: 'right', render: (w) => hours(w.totalActualMinutes) },
+  ]
 
   return (
-    <div>
+    <>
       <PageHeader
-        title="Approved Worklogs"
-        subtitle="Finance · Approved time ready to invoice"
+        eyebrow="Finance"
+        title="Approved work"
+        subtitle="Timesheets that have been approved. They cannot change, which is what makes them billable."
       />
-      <div style={{ padding: '24px 32px' }}>
-        {error && <div style={ERR}>ERROR: {error}</div>}
-        {loading ? (
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>Loading...</div>
-        ) : logs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#7a9ab0', fontFamily: 'monospace', fontSize: 13 }}>
-            No approved worklogs
-          </div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Employee</th>
-                <th>Hours</th>
-                <th>Approved At</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map(w => (
-                <tr key={w.id}>
-                  <td>{w.workDate}</td>
-                  <td style={{ color: '#f0f2f5' }}>{w.employeeName}</td>
-                  <td style={{ color: '#ff6b00', fontWeight: 700 }}>
-                    {(w.totalActualMinutes / 60).toFixed(2)}
-                  </td>
-                  <td>{w.approvedAt?.replace('T', ' ').slice(0, 16) ?? '—'}</td>
-                  <td><StatusPill value={w.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+
+      {error && <Alert>{error}</Alert>}
+
+      <div className="grid grid-3" style={{ marginBottom: 24 }}>
+        <Stat label="Timesheets" value={loading ? '—' : rows.length} />
+        <Stat label="Hours" value={loading ? '—' : hours(minutes)} />
+        <Stat label="Contractors" value={loading ? '—' : people} />
       </div>
-    </div>
+
+      <Card>
+        <div className="card-header">
+          <input
+            type="search"
+            placeholder="Filter by contractor…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ maxWidth: 300 }}
+            aria-label="Filter by contractor"
+          />
+        </div>
+        {loading ? (
+          <LoadingRows />
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={rows}
+            empty={
+              <EmptyState icon="clock" title="No approved work yet">
+                Timesheets appear here once a delivery manager approves them.
+              </EmptyState>
+            }
+          />
+        )}
+      </Card>
+    </>
   )
 }

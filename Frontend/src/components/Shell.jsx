@@ -1,153 +1,174 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
+import Icon, { LogoMark } from './Icon'
+import { initials } from './ui'
 
-const MANAGER_NAV = [
-  { to: '/dashboard',        label: 'DASHBOARD' },
-  { to: '/contracts',        label: 'CONTRACTS' },
-  { to: '/contracts/intake', label: 'INTAKE · AI' },
-  { to: '/clients',          label: 'CLIENTS' },
-  { to: '/employees',        label: 'WORKFORCE' },
-  { to: '/worklogs/pending', label: 'APPROVALS' },
+/**
+ * Navigation is grouped by the job being done rather than by role, and a user
+ * sees the union of the groups their roles unlock — an admin gets everything,
+ * a contractor gets only their own work.
+ */
+const GROUPS = [
+  {
+    title: 'Delivery',
+    show: (a) => a.isManager || a.isAdmin,
+    items: [
+      { to: '/dashboard', label: 'Overview', icon: 'dashboard' },
+      { to: '/contracts', label: 'Contracts', icon: 'contract', end: true },
+      { to: '/contracts/intake', label: 'Contract intake', icon: 'sparkles', badge: 'AI' },
+      { to: '/clients', label: 'Clients', icon: 'building' },
+      { to: '/employees', label: 'Workforce', icon: 'users' },
+      { to: '/worklogs/pending', label: 'Approvals', icon: 'checkCircle' },
+    ],
+  },
+  {
+    title: 'Finance',
+    show: (a) => a.isFinance || a.isAdmin,
+    items: [
+      { to: '/finance/invoices', label: 'Invoices', icon: 'receipt' },
+      { to: '/finance/audit', label: 'Invoice auditor', icon: 'scan', badge: 'AI' },
+      { to: '/finance/milestones', label: 'Milestones', icon: 'flag' },
+      { to: '/finance/worklogs', label: 'Approved work', icon: 'clock' },
+    ],
+  },
+  {
+    title: 'People',
+    show: (a) => a.isHR || a.isAdmin,
+    items: [
+      { to: '/hr/employees', label: 'Employees', icon: 'userPlus' },
+      { to: '/hr/skills', label: 'Skills', icon: 'tag' },
+      { to: '/hr/users', label: 'Users', icon: 'key' },
+      { to: '/hr/roles', label: 'Roles', icon: 'shield' },
+    ],
+  },
+  {
+    title: 'Compliance',
+    show: (a) => a.isAuditor && !a.isAdmin && !a.isFinance,
+    items: [
+      { to: '/contracts', label: 'Contracts', icon: 'contract', end: true },
+      { to: '/finance/audit', label: 'Invoice audits', icon: 'scan' },
+    ],
+  },
+  {
+    title: 'My work',
+    show: (a) => a.isEmployee || a.isAdmin,
+    items: [
+      { to: '/my-assignments', label: 'Assignments', icon: 'briefcase' },
+      { to: '/my-worklogs', label: 'Timesheets', icon: 'clock' },
+      { to: '/my-availability', label: 'Availability', icon: 'calendar' },
+    ],
+  },
 ]
 
-const EMPLOYEE_NAV = [
-  { to: '/my-assignments',  label: 'ASSIGNMENTS' },
-  { to: '/my-worklogs',     label: 'WORKLOGS' },
-  { to: '/my-availability', label: 'AVAILABILITY' },
-]
-
-const HR_NAV = [
-  { to: '/hr/employees', label: 'EMPLOYEES' },
-  { to: '/hr/users',     label: 'USERS' },
-  { to: '/hr/roles',     label: 'ROLES' },
-  { to: '/hr/skills',    label: 'SKILLS' },
-]
-
-const FINANCE_NAV = [
-  { to: '/finance/worklogs',   label: 'WORKLOGS' },
-  { to: '/finance/invoices',   label: 'INVOICES' },
-  { to: '/finance/audit',      label: 'AUDITOR · AI' },
-  { to: '/finance/milestones', label: 'MILESTONES' },
-]
-
-// Read-only across the modules an auditor is entitled to see.
-const AUDITOR_NAV = [
-  { to: '/contracts',     label: 'CONTRACTS' },
-  { to: '/finance/audit', label: 'INVOICE AUDIT' },
-]
-
-function buildNav({ isHR, isFinance, isManager, isEmployee, isAdmin, isAuditor }) {
-  const combined = []
-  // A platform admin sees every module, in the order work flows through them.
-  if (isAdmin) {
-    combined.push(...MANAGER_NAV, ...HR_NAV, ...FINANCE_NAV, ...EMPLOYEE_NAV)
-  } else {
-    if (isHR) combined.push(...HR_NAV)
-    if (isManager) combined.push(...MANAGER_NAV)
-    if (isFinance) combined.push(...FINANCE_NAV)
-    if (isAuditor) combined.push(...AUDITOR_NAV)
-    if (isEmployee) combined.push(...EMPLOYEE_NAV)
-  }
-  const seen = new Set()
-  return combined.filter((n) => (seen.has(n.to) ? false : seen.add(n.to)))
-}
-
-function activeBadge({ isHR, isFinance, isManager, isEmployee, isAdmin, isAuditor }) {
-  const badges = []
-  if (isAdmin) badges.push('ADMIN')
-  if (isHR) badges.push('HR')
-  if (isManager) badges.push('DELIVERY')
-  if (isFinance) badges.push('FINANCE')
-  if (isAuditor) badges.push('AUDIT')
-  if (isEmployee) badges.push('CONTRACTOR')
-  return badges.join(' · ')
+function roleLabel(auth) {
+  if (auth.isAdmin) return 'Platform admin'
+  const labels = []
+  if (auth.isManager) labels.push('Delivery manager')
+  if (auth.isHR) labels.push('HR')
+  if (auth.isFinance) labels.push('Finance')
+  if (auth.isAuditor) labels.push('Auditor')
+  if (auth.isEmployee) labels.push('Contractor')
+  return labels.join(' · ') || 'Member'
 }
 
 export default function Shell({ children }) {
   const auth = useAuth()
-  const { user, logout } = auth
   const navigate = useNavigate()
-  const nav = buildNav(auth)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  const seen = new Set()
+  const groups = GROUPS.filter((g) => g.show(auth))
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => (seen.has(item.to) ? false : seen.add(item.to))),
+    }))
+    .filter((g) => g.items.length > 0)
+
+  const username = auth.user?.username ?? ''
 
   function handleLogout() {
-    logout()
+    auth.logout()
     navigate('/login')
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', width: '100%' }}>
-      <nav style={{
-        width: 200,
-        minWidth: 200,
-        background: '#010b13',
-        borderRight: '1px solid #1e3a4a',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'sticky',
-        top: 0,
-        height: '100vh',
-        flexShrink: 0,
-      }}>
-        <div style={{ padding: '20px 16px 24px', borderBottom: '1px solid #1e3a4a' }}>
-          <div style={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 13, fontWeight: 700, letterSpacing: '0.12em', color: '#ff6b00' }}>
-            WORKLEDGER AI
-          </div>
-          <div style={{ fontSize: 10, color: '#7a9ab0', letterSpacing: '0.08em', marginTop: 2 }}>
-            {activeBadge(auth)} · {user?.username?.toUpperCase()}
+    <div className="app">
+      {menuOpen && <div className="sidebar-backdrop" onClick={() => setMenuOpen(false)} />}
+
+      <aside className={`sidebar${menuOpen ? ' open' : ''}`} aria-label="Primary">
+        <div className="brand">
+          <LogoMark />
+          <div className="brand-name">
+            WorkLedger <span>AI</span>
           </div>
         </div>
 
-        <div style={{ flex: 1, padding: '12px 0', overflowY: 'auto' }}>
-          {nav.map(({ to, label }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/contracts'}
-              style={({ isActive }) => ({
-                display: 'block',
-                padding: '9px 16px',
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                fontFamily: 'ui-monospace, Consolas, monospace',
-                textDecoration: 'none',
-                color: isActive ? '#ff6b00' : '#7a9ab0',
-                borderLeft: isActive ? '2px solid #ff6b00' : '2px solid transparent',
-                background: isActive ? '#ff6b0010' : 'transparent',
-                transition: 'all 0.1s',
-              })}
-            >
-              {label}
-            </NavLink>
+        <nav className="nav">
+          {groups.map((group) => (
+            <div className="nav-group" key={group.title}>
+              <div className="eyebrow nav-group-title">{group.title}</div>
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  onClick={() => setMenuOpen(false)}
+                  className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
+                >
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                  {item.badge && <span className="nav-badge">{item.badge}</span>}
+                </NavLink>
+              ))}
+            </div>
           ))}
-        </div>
+        </nav>
 
-        <div style={{ padding: '12px 16px', borderTop: '1px solid #1e3a4a' }}>
+        <div className="sidebar-foot">
+          <div className="user-chip">
+            <span className="avatar">{initials(username)}</span>
+            <div className="grow">
+              <div className="t-label t-wrap">{username}</div>
+              <div className="t-sm t-mute">{roleLabel(auth)}</div>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon btn-sm"
+              onClick={handleLogout}
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <Icon name="logout" />
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <div className="main">
+        <header className="topbar">
           <button
-            onClick={handleLogout}
-            style={{
-              background: 'none',
-              border: '1px solid #1e3a4a',
-              color: '#7a9ab0',
-              cursor: 'pointer',
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: '0.1em',
-              fontFamily: 'ui-monospace, Consolas, monospace',
-              padding: '6px 10px',
-              borderRadius: 2,
-              width: '100%',
-              textAlign: 'left',
-            }}
+            type="button"
+            className="btn btn-ghost btn-icon"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Open menu"
           >
-            SIGN OUT
+            <Icon name="menu" />
           </button>
-        </div>
-      </nav>
+          <div className="brand" style={{ padding: 0 }}>
+            <LogoMark />
+            <div className="brand-name">
+              WorkLedger <span>AI</span>
+            </div>
+          </div>
+          <span className="grow" />
+          <span className="avatar avatar-sm" title={username}>
+            {initials(username)}
+          </span>
+        </header>
 
-      <main style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: '#010b13' }}>
-        {children}
-      </main>
+        <main className="page">{children}</main>
+      </div>
     </div>
   )
 }

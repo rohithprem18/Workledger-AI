@@ -68,10 +68,13 @@ Roles: `PLATFORM_ADMIN` · `HR_MANAGER` · `MANAGER` · `FINANCE_MANAGER` · `AU
 ```bash
 npm install
 cp .env.example .env          # set DATABASE_URL and JWT_SECRET
-npm run migrate               # applies all 11 migrations, seeds demo accounts
+npm run migrate               # applies all 12 migrations, seeds demo accounts
 
 npm run dev                   # API on :8080
 cd Frontend && npm install && npm run dev   # app on :5173
+
+npm run seed:demo             # optional: a realistic client, contracts, timesheets and invoices
+npm run ui:check              # Playwright pass over every page, desktop and phone
 ```
 
 ### Demo accounts
@@ -89,10 +92,10 @@ All six use the password `password` — [rotate them](docs/DEPLOYMENT.md#before-
 
 ### A five-minute tour
 
-1. Sign in as `manager` → **INTAKE · AI** → upload [`docs/samples/sample-contract.txt`](docs/samples/sample-contract.txt) → **RUN EXTRACTION**. Accept, correct or reject each attribute.
+1. Sign in as `manager` → **Contract intake** → upload [`docs/samples/sample-contract.txt`](docs/samples/sample-contract.txt) → **Run extraction**. Accept, correct or reject each attribute.
 2. Create a client and an hourly contract, add a requirement, assign an eligible contractor.
 3. As `employee1`: submit a worklog. As `manager`: approve it.
-4. As `finance`: generate an invoice, then **AUDITOR · AI** → **RUN AUDIT** — `CLEAN`.
+4. As `finance`: generate an invoice, then **Invoice auditor** → **Run audit** — `CLEAN`.
 5. Make the sources disagree and re-run. The audit turns `BLOCKED`, names the discrepancy with its delta, and approval is refused until it is resolved or overridden.
 
 ---

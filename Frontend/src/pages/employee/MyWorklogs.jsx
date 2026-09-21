@@ -1,146 +1,168 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../auth/AuthContext'
-import { getMyWorklogs } from '../../api'
+import { getMyWorklogs, getMyAssignments } from '../../api'
 import { useFetch } from '../../hooks/useFetch'
 import PageHeader from '../../components/PageHeader'
 import Btn from '../../components/Btn'
 import StatusPill from '../../components/StatusPill'
 import Calendar from '../../components/Calendar'
+import { NotLinked } from './MyAssignments'
+import {
+  Alert,
+  Card,
+  EmptyState,
+  LoadingRows,
+  Stat,
+  Tabs,
+  fmtDate,
+  fmtTime,
+  hours,
+} from '../../components/ui'
 
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
-}
-
-function totalHours(segments) {
-  if (!segments?.length) return null
-  let mins = 0
-  for (const s of segments) {
-    const [sh, sm] = s.startTime.split(':').map(Number)
-    const [eh, em] = s.endTime.split(':').map(Number)
-    mins += (eh * 60 + em) - (sh * 60 + sm)
-  }
-  return (mins / 60).toFixed(2)
-}
-
-function statusClass(status) {
-  switch (status) {
-    case 'APPROVED':  return 'wb-approved'
-    case 'REJECTED':  return 'wb-rejected'
-    case 'SUBMITTED': return 'wb-submitted'
-    default:          return ''
-  }
-}
+const CLASS = { APPROVED: 'wb-approved', REJECTED: 'wb-rejected', SUBMITTED: 'wb-submitted' }
 
 export default function MyWorklogs() {
   const { user } = useAuth()
-  const navigate  = useNavigate()
-  const empId     = user?.employeeId ?? null
-  const [view, setView] = useState('calendar')
+  const navigate = useNavigate()
+  const empId = user?.employeeId ?? null
+  const [view, setView] = useState('ALL')
 
   const { data, loading, error } = useFetch(
-    () => empId ? getMyWorklogs(empId) : Promise.resolve([]),
+    () => (empId ? getMyWorklogs(empId) : Promise.resolve([])),
     [empId],
   )
+  const assignments = useFetch(() => (empId ? getMyAssignments(empId) : Promise.resolve([])), [empId])
 
-  const worklogs = data ?? []
+  const worklogs = useMemo(() => data ?? [], [data])
+  const titleOf = useMemo(
+    () => new Map((assignments.data ?? []).map((a) => [a.id, `${a.contractTitle} · ${a.skillName}`])),
+    [assignments.data],
+  )
 
-  const events = useMemo(() => (
-    worklogs.flatMap(w =>
-      (w.segments ?? []).map((seg, i) => ({
-        id: `${w.id}-${i}`,
-        title: w.status,
-        start: `${w.workDate}T${seg.startTime}`,
-        end:   `${w.workDate}T${seg.endTime}`,
-        classNames: [statusClass(w.status)],
-        extendedProps: { worklog: w },
-      })),
-    )
-  ), [worklogs])
+  const events = useMemo(
+    () =>
+      worklogs.flatMap((w) =>
+        (w.segments ?? []).map((seg, i) => ({
+          id: `${w.id}-${i}`,
+          title: titleOf.get(w.assignmentId) ?? w.status,
+          start: `${w.workDate}T${seg.startTime}`,
+          end: `${w.workDate}T${seg.endTime}`,
+          classNames: [CLASS[w.status] ?? ''],
+        })),
+      ),
+    [worklogs, titleOf],
+  )
 
-  if (!empId) {
-    return (
-      <div>
-        <PageHeader title="My Worklogs" subtitle="Submitted timesheets" />
-        <div style={{ padding: '60px 32px', textAlign: 'center' }}>
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 13, marginBottom: 8 }}>
-            Employee profile not linked to this account.
-          </div>
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 11 }}>
-            Contact HR to have your employee record associated with your login.
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (!empId) return <NotLinked title="Timesheets" />
+
+  const count = (s) => worklogs.filter((w) => w.status === s).length
+  const minutes = (s) =>
+    worklogs.filter((w) => w.status === s).reduce((n, w) => n + (w.totalActualMinutes ?? 0), 0)
+  const rows = view === 'ALL' || view === 'CALENDAR' ? worklogs : worklogs.filter((w) => w.status === view)
+  const rejected = worklogs.filter((w) => w.status === 'REJECTED')
 
   return (
-    <div>
+    <>
       <PageHeader
-        title="My Worklogs"
-        subtitle="Submitted timesheets"
-        action={
-          <div style={{ display: 'flex', gap: 6 }}>
-            <Btn small variant={view === 'calendar' ? 'primary' : 'ghost'} onClick={() => setView('calendar')}>CALENDAR</Btn>
-            <Btn small variant={view === 'list' ? 'primary' : 'ghost'} onClick={() => setView('list')}>LIST</Btn>
-            <Btn onClick={() => navigate('/my-worklogs/new')}>+ SUBMIT WORKLOG</Btn>
-          </div>
-        }
-      />
-      <div style={{ padding: '24px 32px' }}>
-        {error && <div style={ERR}>ERROR: {error}</div>}
+        eyebrow="My work"
+        title="Timesheets"
+        subtitle="What you have logged and where it is in review. Approved time is final."
+      >
+        <Btn icon="plus" onClick={() => navigate('/my-worklogs/new')}>
+          Log time
+        </Btn>
+      </PageHeader>
 
-        {loading ? (
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>Loading...</div>
-        ) : worklogs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#7a9ab0', fontFamily: 'monospace', fontSize: 13 }}>
-            <div style={{ marginBottom: 16 }}>No worklogs submitted yet</div>
-            <Btn onClick={() => navigate('/my-worklogs/new')}>+ Submit first worklog</Btn>
-          </div>
-        ) : view === 'calendar' ? (
-          <Calendar events={events} view="timeGridWeek" height={640} />
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Assignment</th>
-                <th>Work Date</th>
-                <th>Total Hours</th>
-                <th>Status</th>
-                <th>Submitted At</th>
-                <th>Rejection Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {worklogs.map(w => {
-                const hrs = w.totalActualMinutes != null
-                  ? (w.totalActualMinutes / 60).toFixed(2)
-                  : totalHours(w.segments)
-                return (
-                  <tr key={w.id}>
-                    <td style={{ color: '#f0f2f5' }}>
-                      {w.contractTitle ?? w.assignmentId ?? '—'}
-                    </td>
-                    <td>{w.workDate}</td>
-                    <td style={{ color: '#ff6b00', fontWeight: 700 }}>
-                      {hrs != null ? `${hrs}h` : '—'}
-                    </td>
-                    <td><StatusPill value={w.status} /></td>
-                    <td style={{ color: '#7a9ab0' }}>
-                      {w.submittedAt ? new Date(w.submittedAt).toLocaleDateString() : '—'}
-                    </td>
-                    <td style={{ color: '#ef4444', fontSize: 11 }}>
-                      {w.rejectionReason ?? '—'}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
+      {error && <Alert>{error}</Alert>}
+      {rejected.length > 0 && (
+        <Alert tone="warning">
+          {rejected.length} timesheet{rejected.length === 1 ? ' was' : 's were'} returned. Check the reason and
+          log the day again.
+        </Alert>
+      )}
+
+      <div className="grid grid-3" style={{ marginBottom: 24 }}>
+        <Stat label="In review" value={loading ? '—' : hours(minutes('SUBMITTED'))} foot={`${count('SUBMITTED')} timesheets`} />
+        <Stat label="Approved" value={loading ? '—' : hours(minutes('APPROVED'))} foot={`${count('APPROVED')} timesheets`} />
+        <Stat
+          label="Returned"
+          value={loading ? '—' : count('REJECTED')}
+          tone={count('REJECTED') ? 'error' : undefined}
+          foot="Need resubmitting"
+        />
       </div>
-    </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <Tabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'ALL', label: 'All', count: worklogs.length },
+            { value: 'SUBMITTED', label: 'In review', count: count('SUBMITTED') },
+            { value: 'APPROVED', label: 'Approved', count: count('APPROVED') },
+            { value: 'REJECTED', label: 'Returned', count: count('REJECTED') },
+            { value: 'CALENDAR', label: 'Calendar' },
+          ]}
+        />
+      </div>
+
+      <Card>
+        {loading ? (
+          <LoadingRows />
+        ) : worklogs.length === 0 ? (
+          <EmptyState
+            icon="clock"
+            title="Nothing logged yet"
+            action={
+              <Btn icon="plus" onClick={() => navigate('/my-worklogs/new')}>
+                Log your first day
+              </Btn>
+            }
+          >
+            Log the hours you worked against one of your assignments.
+          </EmptyState>
+        ) : view === 'CALENDAR' ? (
+          <div className="card-body">
+            <Calendar events={events} view="timeGridWeek" initialDate={worklogs[0]?.workDate} height={620} />
+          </div>
+        ) : rows.length === 0 ? (
+          <EmptyState icon="clock" title="Nothing in this state" />
+        ) : (
+          <div className="list">
+            {rows.map((w) => (
+              <div className="list-item" key={w.id} style={{ alignItems: 'flex-start' }}>
+                <div className="grow">
+                  <div className="row between wrap gap-8">
+                    <div>
+                      <div className="t-label">{fmtDate(w.workDate)}</div>
+                      <div className="t-sm t-mute">{titleOf.get(w.assignmentId) ?? 'Assignment'}</div>
+                    </div>
+                    <div className="row gap-12">
+                      <span className="t-label t-num">{hours(w.totalActualMinutes)}</span>
+                      <StatusPill value={w.status} />
+                    </div>
+                  </div>
+                  <div className="cluster gap-4 mt-8">
+                    {(w.segments ?? []).map((s) => (
+                      <span key={s.id} className="badge badge-outline badge-plain mono">
+                        {fmtTime(s.startTime)}–{fmtTime(s.endTime)}
+                      </span>
+                    ))}
+                  </div>
+                  {w.rejectionReason && (
+                    <div className="alert alert-error mt-12" style={{ fontSize: 13 }}>
+                      <span>
+                        <strong>Returned:</strong> {w.rejectionReason}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </>
   )
 }

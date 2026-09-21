@@ -1,45 +1,59 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
+import Icon from './Icon'
 
-export default function Drawer({ open, onClose, title, children, width = 480 }) {
+/**
+ * Side sheet on desktop, bottom sheet on phones (the switch is pure CSS).
+ * Escape closes it, focus moves into it on open, and the page behind stops
+ * scrolling while it is up.
+ */
+export default function Drawer({ open, onClose, title, subtitle, children, footer }) {
+  const panel = useRef(null)
+
   useEffect(() => {
-    function onKey(e) { if (e.key === 'Escape') onClose() }
-    if (open) document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    if (!open) return undefined
+    function onKey(e) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const t = setTimeout(
+      () =>
+        panel.current
+          ?.querySelector('.drawer-body input, .drawer-body select, .drawer-body textarea')
+          ?.focus({ preventScroll: true }),
+      80,
+    )
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previous
+      clearTimeout(t)
+    }
   }, [open, onClose])
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(1,11,19,0.7)',
-          opacity: open ? 1 : 0, pointerEvents: open ? 'auto' : 'none',
-          zIndex: 40, transition: 'opacity 0.18s',
-        }}
-      />
-      {/* Panel */}
-      <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width,
-        background: '#0d1b2a', borderLeft: '1px solid #1e3a4a',
-        transform: open ? 'translateX(0)' : `translateX(${width}px)`,
-        transition: 'transform 0.2s cubic-bezier(0.4,0,0.2,1)',
-        zIndex: 50, display: 'flex', flexDirection: 'column', overflowY: 'auto',
-      }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '16px 20px', borderBottom: '1px solid #1e3a4a', flexShrink: 0,
-        }}>
-          <span style={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', color: '#7a9ab0' }}>
-            {title}
-          </span>
-          <button onClick={onClose} style={{
-            background: 'none', border: 'none', color: '#7a9ab0', cursor: 'pointer',
-            fontSize: 18, lineHeight: 1, padding: 4,
-          }}>×</button>
+      <div className={`drawer-backdrop${open ? ' open' : ''}`} onClick={onClose} />
+      <aside
+        ref={panel}
+        className={`drawer${open ? ' open' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-hidden={!open}
+        aria-label={typeof title === 'string' ? title : undefined}
+      >
+        <div className="drawer-head">
+          <div className="grow">
+            <h2 className="t-h3">{title}</h2>
+            {subtitle && <div className="t-sm t-mute mt-4">{subtitle}</div>}
+          </div>
+          <button type="button" className="btn btn-ghost btn-icon btn-sm" onClick={onClose} aria-label="Close">
+            <Icon name="x" />
+          </button>
         </div>
-        <div style={{ padding: 20, flex: 1 }}>{children}</div>
-      </div>
+        <div className="drawer-body">{open && children}</div>
+        {footer && <div className="drawer-foot">{footer}</div>}
+      </aside>
     </>
   )
 }

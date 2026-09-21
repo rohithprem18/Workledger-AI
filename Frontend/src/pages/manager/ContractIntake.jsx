@@ -1,25 +1,30 @@
-import { useState, useCallback } from 'react'
+import { useCallback, useState } from 'react'
 import {
-  getContractDocuments, getContractDocument, uploadContractDocument,
-  runContractExtraction, reviewExtraction, applyExtractions, getContracts,
+  getContractDocuments,
+  getContractDocument,
+  getContractDocumentText,
+  uploadContractDocument,
+  runContractExtraction,
+  reviewExtraction,
+  applyExtractions,
+  getContracts,
 } from '../../api'
 import { useFetch } from '../../hooks/useFetch'
 import PageHeader from '../../components/PageHeader'
 import Btn from '../../components/Btn'
+import Icon from '../../components/Icon'
+import Drawer from '../../components/Drawer'
 import StatusPill from '../../components/StatusPill'
-
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
-}
-const MUTED = { color: '#7a9ab0', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12 }
-const CARD = { border: '1px solid #1e3a4a', borderRadius: 3, background: '#03121d' }
-const LABEL = {
-  display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-  color: '#7a9ab0', fontFamily: 'ui-monospace, Consolas, monospace',
-  marginBottom: 6, textTransform: 'uppercase',
-}
+import {
+  Alert,
+  Card,
+  EmptyState,
+  Field,
+  LoadingRows,
+  Stat,
+  errorText,
+  fmtDateTime,
+} from '../../components/ui'
 
 const TYPE_ORDER = ['RATE', 'BILLING_TERM', 'MILESTONE', 'DATE']
 const TYPE_LABEL = {
@@ -29,6 +34,11 @@ const TYPE_LABEL = {
   DATE: 'Dates',
 }
 
+/**
+ * Contract intake: upload a document, let both engines propose attributes,
+ * then decide on each one. Nothing reaches the contract until every attribute
+ * has been accepted, corrected or rejected by a person.
+ */
 export default function ContractIntake() {
   const documents = useFetch(() => getContractDocuments(), [])
   const contracts = useFetch(getContracts, [])
@@ -37,16 +47,18 @@ export default function ContractIntake() {
   const [contractId, setContractId] = useState('')
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [source, setSource] = useState(null)
+  const [focusRow, setFocusRow] = useState(null)
 
   const docs = documents.data ?? []
-  const contractList = contracts.data ?? []
 
   const openDocument = useCallback(async (id) => {
     setError(null)
     try {
       setSelected(await getContractDocument(id))
     } catch (e) {
-      setError(typeof e === 'string' ? e : 'Could not load document')
+      setError(errorText(e, 'Could not load the document'))
     }
   }, [])
 
@@ -55,12 +67,14 @@ export default function ContractIntake() {
     if (!file) return
     setBusy('upload')
     setError(null)
+    setNotice(null)
     try {
       const created = await uploadContractDocument(file, { contractId: contractId || undefined })
       documents.reload()
       await openDocument(created.id)
+      setNotice(`${file.name} uploaded. Run extraction to propose its terms.`)
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Upload failed')
+      setError(errorText(err, 'Upload failed'))
     } finally {
       setBusy(null)
       e.target.value = ''
@@ -70,11 +84,14 @@ export default function ContractIntake() {
   async function handleExtract(id) {
     setBusy('extract')
     setError(null)
+    setNotice(null)
     try {
-      setSelected(await runContractExtraction(id))
+      const doc = await runContractExtraction(id)
+      setSelected(doc)
       documents.reload()
+      setNotice(`${doc.attributeCount} attributes proposed — review each one below.`)
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Extraction failed')
+      setError(errorText(err, 'Extraction failed'))
     } finally {
       setBusy(null)
     }
@@ -87,7 +104,7 @@ export default function ContractIntake() {
       await openDocument(selected.id)
       documents.reload()
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Could not record that decision')
+      setError(errorText(err, 'Could not record that decision'))
     }
   }
 
@@ -98,303 +115,344 @@ export default function ContractIntake() {
       await applyExtractions(id)
       await openDocument(id)
       documents.reload()
+      setNotice('Validated attributes applied to the contract.')
     } catch (err) {
-      setError(typeof err === 'string' ? err : 'Could not apply extractions')
+      setError(errorText(err, 'Could not apply extractions'))
     } finally {
       setBusy(null)
     }
   }
 
+  async function showInSource(row) {
+    setFocusRow(row)
+    if (source?.id === selected.id) return
+    try {
+      setSource(await getContractDocumentText(selected.id))
+    } catch (err) {
+      setError(errorText(err, 'Could not load the document text'))
+    }
+  }
+
   const rows = selected?.extractions ?? []
   const pending = rows.filter((r) => r.reviewStatus === 'PENDING').length
-  const canApply = selected && rows.length > 0 && pending === 0
-                   && selected.contractId && selected.status !== 'APPLIED'
+  const verified = rows.filter((r) => r.citationVerified).length
+  const canApply =
+    selected && rows.length > 0 && pending === 0 && selected.contractId && selected.status !== 'APPLIED'
 
   return (
-    <div>
+    <>
       <PageHeader
-        title="Contract Intake"
-        subtitle="Upload a contract · extract rates, billing terms, milestones and dates · validate every one"
+        eyebrow="Contract intelligence"
+        title="Contract intake"
+        subtitle="Extract rates, billing terms, milestones and dates — each with a quote that is checked against the source text."
       />
 
-      <div style={{ padding: '24px 32px' }}>
-        {(documents.error || error) && <div style={ERR}>ERROR: {documents.error || error}</div>}
+      {error && <Alert onClose={() => setError(null)}>{error}</Alert>}
+      {notice && (
+        <Alert tone="success" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      )}
 
-        {/* ---------------------------------------------------------- upload */}
-        <div style={{ ...CARD, padding: 20, marginBottom: 24 }}>
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-            <div style={{ minWidth: 260, flex: 1 }}>
-              <label style={LABEL}>Attach to contract (optional)</label>
+      <div className="grid grid-sidebar">
+        {/* ---------------------------------------------------- left rail */}
+        <div className="stack gap-16">
+          <Card pad="sm">
+            <Field label="Link to contract" hint="Needed before validated dates can be applied.">
               <select value={contractId} onChange={(e) => setContractId(e.target.value)}>
-                <option value="">— Review without linking a contract —</option>
-                {contractList.map((c) => (
-                  <option key={c.id} value={c.id}>{c.title}</option>
+                <option value="">Review without linking</option>
+                {(contracts.data ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
                 ))}
               </select>
-            </div>
-            <div style={{ minWidth: 260, flex: 1 }}>
-              <label style={LABEL}>Contract document</label>
+            </Field>
+            <label className="file-drop mt-12">
               <input
                 type="file"
                 accept=".pdf,.txt,.md,text/plain,application/pdf"
                 onChange={handleUpload}
                 disabled={busy === 'upload'}
               />
-            </div>
-          </div>
-          <div style={{ ...MUTED, marginTop: 12 }}>
-            Text-based PDF, plain text or Markdown, up to 10 MB. Scanned images have no
-            extractable text and are rejected.
-          </div>
-        </div>
+              {busy === 'upload' ? <span className="spinner" /> : <Icon name="upload" />}
+              <span className="t-label">{busy === 'upload' ? 'Uploading…' : 'Upload a contract'}</span>
+              <span className="t-sm t-mute">PDF, TXT or Markdown · up to 10 MB</span>
+            </label>
+          </Card>
 
-        <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          {/* ------------------------------------------------ document list */}
-          <div style={{ ...CARD, width: 300, flexShrink: 0 }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid #1e3a4a', ...MUTED, fontWeight: 700, letterSpacing: '0.1em' }}>
-              DOCUMENTS ({docs.length})
+          <Card>
+            <div className="card-header">
+              <span className="eyebrow">Documents</span>
+              <span className="t-sm t-mute">{docs.length}</span>
             </div>
             {documents.loading ? (
-              <div style={{ padding: 16, ...MUTED }}>Loading…</div>
+              <LoadingRows rows={3} />
             ) : docs.length === 0 ? (
-              <div style={{ padding: 16, ...MUTED }}>Nothing uploaded yet</div>
+              <div className="card-pad-sm t-sm t-mute">Nothing uploaded yet.</div>
             ) : (
-              docs.map((d) => (
-                <button
-                  key={d.id}
-                  onClick={() => openDocument(d.id)}
-                  style={{
-                    display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
-                    padding: '10px 16px', border: 'none',
-                    borderBottom: '1px solid #0f2433',
-                    borderLeft: selected?.id === d.id ? '2px solid #ff6b00' : '2px solid transparent',
-                    background: selected?.id === d.id ? '#ff6b0010' : 'transparent',
-                  }}
-                >
-                  <div style={{ color: '#f0f2f5', fontSize: 12, fontWeight: 600, wordBreak: 'break-all' }}>
-                    {d.fileName}
-                  </div>
-                  <div style={{ ...MUTED, fontSize: 10, marginTop: 4 }}>
-                    {d.status} · {d.pageCount} page{d.pageCount === 1 ? '' : 's'}
-                    {d.contractTitle ? ` · ${d.contractTitle}` : ''}
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-
-          {/* -------------------------------------------- extraction review */}
-          <div style={{ flex: 1, minWidth: 420 }}>
-            {!selected ? (
-              <div style={{ ...CARD, padding: 48, textAlign: 'center', ...MUTED }}>
-                Select a document to review its extracted attributes
+              <div className="list" style={{ maxHeight: 420, overflowY: 'auto' }}>
+                {docs.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className={`list-item${selected?.id === d.id ? ' active' : ''}`}
+                    onClick={() => openDocument(d.id)}
+                  >
+                    <Icon name="file" />
+                    <div className="grow">
+                      <div className="t-label t-wrap">{d.fileName}</div>
+                      <div className="t-sm t-mute t-wrap">
+                        {d.contractTitle ?? 'Unlinked'} · {d.pageCount} page{d.pageCount === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <StatusPill value={d.status} />
+                  </button>
+                ))}
               </div>
-            ) : (
-              <>
-                <DocumentSummary
-                  document={selected}
-                  pending={pending}
-                  busy={busy}
-                  canApply={canApply}
-                  onExtract={() => handleExtract(selected.id)}
-                  onApply={() => handleApply(selected.id)}
-                />
-
-                {rows.length === 0 ? (
-                  <div style={{ ...CARD, padding: 32, textAlign: 'center', ...MUTED, marginTop: 16 }}>
-                    {selected.status === 'UPLOADED'
-                      ? 'Run extraction to propose attributes from this document.'
-                      : 'No attributes were extracted from this document.'}
-                  </div>
-                ) : (
-                  TYPE_ORDER.map((type) => {
-                    const group = rows.filter((r) => r.attributeType === type)
-                    if (group.length === 0) return null
-                    return (
-                      <AttributeGroup
-                        key={type}
-                        title={TYPE_LABEL[type]}
-                        rows={group}
-                        frozen={selected.status === 'APPLIED'}
-                        onReview={handleReview}
-                      />
-                    )
-                  })
-                )}
-              </>
             )}
-          </div>
+          </Card>
         </div>
-      </div>
-    </div>
-  )
-}
 
-function DocumentSummary({ document, pending, busy, canApply, onExtract, onApply }) {
-  const verified = document.verifiedCitationCount ?? 0
-  const total = document.attributeCount ?? 0
+        {/* ------------------------------------------------ review panel */}
+        <div className="stack gap-16" style={{ minWidth: 0 }}>
+          {!selected ? (
+            <Card>
+              <EmptyState icon="sparkles" title="Pick or upload a document">
+                Try <span className="mono">docs/samples/sample-contract.txt</span> from the repository to see
+                the full flow.
+              </EmptyState>
+            </Card>
+          ) : (
+            <>
+              <Card pad>
+                <div className="row between wrap gap-12">
+                  <div className="grow">
+                    <div className="row gap-8 wrap">
+                      <h2 className="t-h2 t-wrap">{selected.fileName}</h2>
+                      <StatusPill value={selected.status} />
+                    </div>
+                    <div className="t-sm t-mute mt-4">
+                      {selected.contractTitle ? `Linked to ${selected.contractTitle}` : 'Not linked to a contract'}
+                      {selected.extractionEngine && ` · engine: ${selected.extractionEngine}`}
+                      {selected.extractedAt && ` · ${fmtDateTime(selected.extractedAt)}`}
+                    </div>
+                  </div>
+                  <div className="cluster">
+                    <Btn
+                      variant={rows.length ? 'secondary' : 'primary'}
+                      icon="sparkles"
+                      loading={busy === 'extract'}
+                      disabled={selected.status === 'APPLIED'}
+                      onClick={() => handleExtract(selected.id)}
+                    >
+                      {rows.length ? 'Re-extract' : 'Run extraction'}
+                    </Btn>
+                    {rows.length > 0 && (
+                      <Btn
+                        icon="check"
+                        loading={busy === 'apply'}
+                        disabled={!canApply}
+                        onClick={() => handleApply(selected.id)}
+                        title={
+                          !selected.contractId
+                            ? 'Link this document to a contract first'
+                            : pending
+                              ? 'Review every attribute first'
+                              : undefined
+                        }
+                      >
+                        Apply to contract
+                      </Btn>
+                    )}
+                  </div>
+                </div>
+                {selected.extractionError && (
+                  <div className="mt-16">
+                    <Alert>{selected.extractionError}</Alert>
+                  </div>
+                )}
+              </Card>
 
-  return (
-    <div style={{ ...CARD, padding: 20 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ color: '#f0f2f5', fontSize: 15, fontWeight: 600, wordBreak: 'break-all' }}>
-            {document.fileName}
-          </div>
-          <div style={{ ...MUTED, marginTop: 6 }}>
-            <StatusPill value={document.status} />
-            {document.extractionEngine && <> · engine: {document.extractionEngine}</>}
-            {document.contractTitle && <> · {document.contractTitle}</>}
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Btn onClick={onExtract} disabled={busy === 'extract' || document.status === 'APPLIED'}>
-            {busy === 'extract' ? 'EXTRACTING…' : total > 0 ? 'RE-EXTRACT' : 'RUN EXTRACTION'}
-          </Btn>
-          {total > 0 && (
-            <Btn variant="approve" onClick={onApply} disabled={!canApply || busy === 'apply'}>
-              {busy === 'apply' ? 'APPLYING…' : 'APPLY TO CONTRACT'}
-            </Btn>
+              {rows.length > 0 && (
+                <div className="grid grid-3">
+                  <Stat label="Attributes" value={rows.length} foot="Across four families" />
+                  <Stat
+                    label="Awaiting review"
+                    value={pending}
+                    tone={pending ? 'warning' : 'success'}
+                    foot={pending ? 'Decide on each before applying' : 'All decided'}
+                  />
+                  <Stat
+                    label="Citations verified"
+                    value={`${verified}/${rows.length}`}
+                    tone={verified === rows.length ? 'success' : 'warning'}
+                    foot="Quote found verbatim in the source"
+                  />
+                </div>
+              )}
+
+              {rows.length === 0 ? (
+                <Card>
+                  <EmptyState icon="sparkles" title="Ready to extract">
+                    Both engines run: a language model for recall, and a pattern matcher whose citations are
+                    exact by construction.
+                  </EmptyState>
+                </Card>
+              ) : (
+                TYPE_ORDER.map((type) => {
+                  const group = rows.filter((r) => r.attributeType === type)
+                  if (group.length === 0) return null
+                  return (
+                    <div key={type}>
+                      <div className="row between" style={{ marginBottom: 10 }}>
+                        <h3 className="t-h3">{TYPE_LABEL[type]}</h3>
+                        <span className="t-sm t-mute">{group.length}</span>
+                      </div>
+                      <div className="stack gap-12">
+                        {group.map((row) => (
+                          <ExtractionRow
+                            key={row.id}
+                            row={row}
+                            frozen={selected.status === 'APPLIED'}
+                            onReview={handleReview}
+                            onShowSource={() => showInSource(row)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </>
           )}
         </div>
       </div>
 
-      {total > 0 && (
-        <div style={{ display: 'flex', gap: 28, marginTop: 18, flexWrap: 'wrap' }}>
-          <Stat label="Attributes" value={total} />
-          <Stat label="Awaiting review" value={pending} accent={pending > 0 ? '#ff6b00' : '#00c851'} />
-          <Stat
-            label="Citations verified"
-            value={`${verified}/${total}`}
-            accent={verified === total ? '#00c851' : '#ff6b00'}
-          />
-        </div>
-      )}
-
-      {document.extractionError && (
-        <div style={{ ...ERR, marginTop: 16, marginBottom: 0 }}>{document.extractionError}</div>
-      )}
-
-      {total > 0 && pending > 0 && (
-        <div style={{ ...MUTED, marginTop: 16, lineHeight: 1.6 }}>
-          Nothing here reaches the contract until a person decides on it. Accept a value,
-          correct it, or reject it — all {pending} remaining must be resolved before this
-          document can be applied.
-        </div>
-      )}
-      {!document.contractId && total > 0 && (
-        <div style={{ ...MUTED, marginTop: 10, color: '#ff6b00' }}>
-          This document is not linked to a contract, so validated values cannot be applied.
-        </div>
-      )}
-    </div>
+      <Drawer
+        open={!!focusRow}
+        onClose={() => setFocusRow(null)}
+        title="Source"
+        subtitle={focusRow ? `${focusRow.fieldLabel} · page ${focusRow.citationPage ?? '—'}` : ''}
+      >
+        {focusRow && <SourceView text={source?.sourceText} row={focusRow} />}
+      </Drawer>
+    </>
   )
 }
 
-function Stat({ label, value, accent = '#f0f2f5' }) {
+/** The stored document text with the cited span highlighted in place. */
+function SourceView({ text, row }) {
+  if (!text) return <LoadingRows rows={6} />
+  if (row.citationStart == null || row.citationEnd == null) {
+    return <Alert tone="warning">This quote was not found in the source, so there is nothing to highlight.</Alert>
+  }
+  const from = Math.max(0, row.citationStart - 600)
+  const to = Math.min(text.length, row.citationEnd + 600)
   return (
-    <div>
-      <div style={{ ...MUTED, fontSize: 10, letterSpacing: '0.1em', fontWeight: 700 }}>
-        {label.toUpperCase()}
-      </div>
-      <div style={{ color: accent, fontSize: 20, fontWeight: 700, marginTop: 2 }}>{value}</div>
+    <div className="quote" style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: '21px' }}>
+      {from > 0 && '…'}
+      {text.slice(from, row.citationStart)}
+      <mark
+        ref={(el) => el?.scrollIntoView({ block: 'center' })}
+        style={{ background: '#fff3b0', color: 'var(--ink)', padding: '1px 0', borderRadius: 3 }}
+      >
+        {text.slice(row.citationStart, row.citationEnd)}
+      </mark>
+      {text.slice(row.citationEnd, to)}
+      {to < text.length && '…'}
     </div>
   )
 }
 
-function AttributeGroup({ title, rows, frozen, onReview }) {
-  return (
-    <div style={{ marginTop: 20 }}>
-      <div style={{ ...MUTED, fontWeight: 700, letterSpacing: '0.12em', marginBottom: 8 }}>
-        {title.toUpperCase()} ({rows.length})
-      </div>
-      {rows.map((row) => (
-        <ExtractionRow key={row.id} row={row} frozen={frozen} onReview={onReview} />
-      ))}
-    </div>
-  )
-}
-
-function ExtractionRow({ row, frozen, onReview }) {
+function ExtractionRow({ row, frozen, onReview, onShowSource }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(row.effectiveValue ?? row.rawValue ?? '')
-
-  const decided = row.reviewStatus !== 'PENDING'
   const confidence = Math.round((Number(row.confidence) || 0) * 100)
 
   return (
-    <div style={{ ...CARD, padding: 16, marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 260 }}>
-          <div style={{ ...MUTED, fontSize: 10, letterSpacing: '0.1em', fontWeight: 700 }}>
-            {row.fieldLabel.toUpperCase()}
-          </div>
-          <div style={{ color: '#f0f2f5', fontSize: 16, fontWeight: 600, marginTop: 4 }}>
+    <Card pad="sm">
+      <div className="row between gap-12" style={{ alignItems: 'flex-start' }}>
+        <div className="grow">
+          <div className="eyebrow">{row.fieldLabel}</div>
+          <div className="t-h3 mt-4 t-wrap">
             {row.effectiveValue ?? row.rawValue ?? '—'}
-            {row.currency && <span style={{ ...MUTED, marginLeft: 8 }}>{row.currency}</span>}
+            {row.currency && <span className="t-mute mono t-sm"> {row.currency}</span>}
           </div>
           {row.rawValue && row.rawValue !== row.effectiveValue && (
-            <div style={{ ...MUTED, marginTop: 2 }}>as written: “{row.rawValue}”</div>
+            <div className="t-sm t-mute mt-4">As written: “{row.rawValue}”</div>
           )}
         </div>
-
-        <div style={{ textAlign: 'right' }}>
+        <div className="stack gap-4" style={{ alignItems: 'flex-end' }}>
           <StatusPill value={row.reviewStatus} />
-          <div style={{ ...MUTED, marginTop: 6 }}>{confidence}% confidence</div>
+          <span className="t-sm t-mute t-num">{confidence}% confidence</span>
         </div>
       </div>
 
-      {/* ------------------------------------------------------- citation */}
-      <div
-        style={{
-          marginTop: 12, padding: '10px 12px', borderRadius: 2,
-          background: row.citationVerified ? '#00c85108' : '#ef444408',
-          borderLeft: `2px solid ${row.citationVerified ? '#00c851' : '#ef4444'}`,
-        }}
-      >
-        <div style={{
-          ...MUTED, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-          color: row.citationVerified ? '#00c851' : '#ef4444',
-        }}>
-          {row.citationVerified
-            ? `✓ FOUND IN SOURCE${row.citationPage ? ` · PAGE ${row.citationPage}` : ''}`
-            : '✗ NOT FOUND IN SOURCE — VERIFY MANUALLY'}
+      <div className={`quote mt-12 ${row.citationVerified ? 'verified' : 'unverified'}`}>
+        <div className="row between gap-8" style={{ marginBottom: 6 }}>
+          <span
+            className={`t-sm ${row.citationVerified ? 't-success' : 't-error'}`}
+            style={{ fontFamily: 'var(--sans)', fontWeight: 500 }}
+          >
+            {row.citationVerified
+              ? `Found in source${row.citationPage ? ` · page ${row.citationPage}` : ''}`
+              : 'Not found in source — verify manually'}
+          </span>
+          {row.citationVerified && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onShowSource}>
+              <Icon name="eye" /> View
+            </button>
+          )}
         </div>
-        <div style={{ color: '#c3d4e0', fontSize: 12, marginTop: 6, lineHeight: 1.6, fontStyle: 'italic' }}>
-          {row.citationQuote ? `“${row.citationQuote}”` : 'No supporting quote was produced.'}
-        </div>
+        {row.citationQuote ? `“${row.citationQuote}”` : 'No supporting quote was produced.'}
       </div>
 
-      {/* --------------------------------------------------------- actions */}
-      {!frozen && (
-        editing ? (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+      {!frozen &&
+        (editing ? (
+          <div className="row gap-8 wrap mt-12">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              style={{ flex: 1, minWidth: 200 }}
+              style={{ flex: 1, minWidth: 180 }}
               placeholder={`Corrected ${row.valueKind.toLowerCase()} value`}
+              aria-label="Corrected value"
             />
-            <Btn small variant="approve" onClick={() => { setEditing(false); onReview(row.id, 'EDITED', draft) }}>
-              SAVE
+            <Btn
+              small
+              icon="check"
+              onClick={() => {
+                setEditing(false)
+                onReview(row.id, 'EDITED', draft)
+              }}
+            >
+              Save
             </Btn>
-            <Btn small variant="ghost" onClick={() => setEditing(false)}>CANCEL</Btn>
+            <Btn small variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Btn>
           </div>
         ) : (
-          <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Btn small variant="approve" onClick={() => onReview(row.id, 'ACCEPTED')}>ACCEPT</Btn>
-            <Btn small variant="ghost" onClick={() => { setDraft(row.effectiveValue ?? ''); setEditing(true) }}>
-              CORRECT
+          <div className="cluster mt-12">
+            <Btn small variant="approve" icon="check" onClick={() => onReview(row.id, 'ACCEPTED')}>
+              Accept
             </Btn>
-            <Btn small variant="reject" onClick={() => onReview(row.id, 'REJECTED')}>REJECT</Btn>
-            {decided && (
-              <span style={{ ...MUTED, marginLeft: 4 }}>
-                reviewed {row.reviewedAt ? new Date(row.reviewedAt).toLocaleString() : ''}
-              </span>
-            )}
+            <Btn
+              small
+              variant="secondary"
+              icon="edit"
+              onClick={() => {
+                setDraft(row.effectiveValue ?? '')
+                setEditing(true)
+              }}
+            >
+              Correct
+            </Btn>
+            <Btn small variant="reject" icon="x" onClick={() => onReview(row.id, 'REJECTED')}>
+              Reject
+            </Btn>
           </div>
-        )
-      )}
-    </div>
+        ))}
+    </Card>
   )
 }

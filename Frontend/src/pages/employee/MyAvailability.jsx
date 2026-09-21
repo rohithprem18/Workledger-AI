@@ -1,209 +1,220 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { getAvailability, setAvailability } from '../../api'
 import { useFetch } from '../../hooks/useFetch'
 import PageHeader from '../../components/PageHeader'
-import Drawer from '../../components/Drawer'
 import Btn from '../../components/Btn'
+import { NotLinked } from './MyAssignments'
+import { Alert, Card, LoadingRows, errorText } from '../../components/ui'
 
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+const blankWeek = () =>
+  DAYS.map((_, i) => ({ dayOfWeek: i + 1, on: false, startTime: '09:00', endTime: '17:00', maxHoursPerDay: 8 }))
+
+function minutes(t) {
+  const [h, m] = t.split(':').map(Number)
+  return h * 60 + m
 }
-const LABEL = {
-  display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-  color: '#7a9ab0', fontFamily: 'ui-monospace, Consolas, monospace',
-  marginBottom: 6, textTransform: 'uppercase',
-}
-const FIELD = { marginBottom: 18 }
 
-const DAYS = [
-  { num: 1, label: 'Monday' },
-  { num: 2, label: 'Tuesday' },
-  { num: 3, label: 'Wednesday' },
-  { num: 4, label: 'Thursday' },
-  { num: 5, label: 'Friday' },
-  { num: 6, label: 'Saturday' },
-  { num: 7, label: 'Sunday' },
-]
-
-const EMPTY_FORM = { startTime: '', endTime: '', maxHoursPerDay: '' }
-
+/**
+ * The weekly pattern assignment is checked against: every assigned day must
+ * fall on an available day, inside its window, and under its hour cap. The
+ * whole week is saved at once — the API replaces the pattern, so saving one
+ * day in isolation would erase the others.
+ */
 export default function MyAvailability() {
   const { user } = useAuth()
-  const empId    = user?.employeeId ?? null
+  const empId = user?.employeeId ?? null
 
   const { data, loading, error, reload } = useFetch(
-    () => empId ? getAvailability(empId) : Promise.resolve([]),
+    () => (empId ? getAvailability(empId) : Promise.resolve([])),
     [empId],
   )
 
-  const [drawerDay, setDrawerDay]       = useState(null)   // { num, label }
-  const [form, setForm]                 = useState(EMPTY_FORM)
-  const [saveError, setSaveError]       = useState(null)
-  const [saving, setSaving]             = useState(false)
+  const [week, setWeek] = useState(blankWeek)
+  const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
+  const [notice, setNotice] = useState(null)
 
-  const availability = data ?? []
+  useEffect(() => {
+    if (!data) return
+    const next = blankWeek()
+    for (const entry of data) {
+      const day = next[entry.dayOfWeek - 1]
+      if (!day) continue
+      day.on = true
+      day.startTime = String(entry.startTime).slice(0, 5)
+      day.endTime = String(entry.endTime).slice(0, 5)
+      day.maxHoursPerDay = Number(entry.maxHoursPerDay)
+    }
+    setWeek(next)
+    setDirty(false)
+  }, [data])
 
-  function getDay(dayNum) {
-    return availability.find(a => a.dayOfWeek === dayNum) ?? null
+  function update(i, patch) {
+    setWeek((w) => w.map((d, idx) => (idx === i ? { ...d, ...patch } : d)))
+    setDirty(true)
+    setNotice(null)
   }
 
-  function openEdit(day) {
-    const existing = getDay(day.num)
-    setForm({
-      startTime:      existing?.startTime?.slice(0, 5)  ?? '',
-      endTime:        existing?.endTime?.slice(0, 5)    ?? '',
-      maxHoursPerDay: existing?.maxHoursPerDay != null ? String(existing.maxHoursPerDay) : '',
+  function preset(kind) {
+    setWeek(
+      blankWeek().map((d) => ({
+        ...d,
+        on: kind === 'weekdays' ? d.dayOfWeek <= 5 : kind === 'all' ? true : false,
+      })),
+    )
+    setDirty(true)
+  }
+
+  const problems = week
+    .map((d, i) => {
+      if (!d.on) return null
+      if (minutes(d.endTime) <= minutes(d.startTime)) return `${DAYS[i]}: end must be after start`
+      const window = (minutes(d.endTime) - minutes(d.startTime)) / 60
+      if (Number(d.maxHoursPerDay) > window) return `${DAYS[i]}: cap exceeds the ${window}h window`
+      if (!(Number(d.maxHoursPerDay) >= 0.5)) return `${DAYS[i]}: cap must be at least 0.5h`
+      return null
     })
-    setSaveError(null)
-    setDrawerDay(day)
-  }
+    .filter(Boolean)
 
-  async function handleSave(e) {
-    e.preventDefault()
-    if (!form.startTime || !form.endTime) { setSaveError('Start and end time are required'); return }
+  const totalHours = week.filter((d) => d.on).reduce((n, d) => n + Number(d.maxHoursPerDay || 0), 0)
+
+  async function save() {
     setSaving(true)
     setSaveError(null)
     try {
-      await setAvailability(empId, {
-        dayOfWeek:      drawerDay.num,
-        startTime:      form.startTime + ':00',
-        endTime:        form.endTime   + ':00',
-        maxHoursPerDay: form.maxHoursPerDay ? Number(form.maxHoursPerDay) : null,
-      })
-      setDrawerDay(null)
+      await setAvailability(
+        empId,
+        week
+          .filter((d) => d.on)
+          .map((d) => ({
+            dayOfWeek: d.dayOfWeek,
+            startTime: d.startTime,
+            endTime: d.endTime,
+            maxHoursPerDay: Number(d.maxHoursPerDay),
+          })),
+      )
+      setNotice('Availability saved. New assignments are checked against it.')
       reload()
     } catch (err) {
-      setSaveError(err?.response?.data?.message ?? err?.message ?? 'Save failed')
+      setSaveError(errorText(err, 'Could not save'))
     } finally {
       setSaving(false)
     }
   }
 
-  if (!empId) {
-    return (
-      <div>
-        <PageHeader title="My Availability" subtitle="Weekly schedule preferences" />
-        <div style={{ padding: '60px 32px', textAlign: 'center' }}>
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 13, marginBottom: 8 }}>
-            Employee profile not linked to this account.
-          </div>
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 11 }}>
-            Contact your manager to have your employee record associated with your login.
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (!empId) return <NotLinked title="Availability" />
 
   return (
-    <div>
-      <PageHeader title="My Availability" subtitle="Weekly schedule preferences" />
-      <div style={{ padding: '24px 32px' }}>
-        {error && <div style={ERR}>ERROR: {error}</div>}
+    <>
+      <PageHeader
+        eyebrow="My work"
+        title="Availability"
+        subtitle="Your usual week. Managers can only assign you inside these windows and under your daily cap."
+      >
+        <Btn icon="check" loading={saving} disabled={!dirty || problems.length > 0} onClick={save}>
+          Save week
+        </Btn>
+      </PageHeader>
+
+      {(error || saveError) && <Alert>{error || saveError}</Alert>}
+      {notice && (
+        <Alert tone="success" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      )}
+      {problems.length > 0 && <Alert tone="warning">{problems[0]}</Alert>}
+
+      <Card>
+        <div className="card-header wrap">
+          <div className="cluster">
+            <span className="t-sm t-mute">Quick set:</span>
+            <button type="button" className="btn btn-secondary btn-sm btn-pill" onClick={() => preset('weekdays')}>
+              Weekdays 9–5
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm btn-pill" onClick={() => preset('all')}>
+              Every day
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm btn-pill" onClick={() => preset('none')}>
+              Clear
+            </button>
+          </div>
+          <span className="t-sm t-body">
+            Up to <strong className="t-ink t-num">{totalHours}h</strong> a week
+          </span>
+        </div>
 
         {loading ? (
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>Loading...</div>
+          <LoadingRows rows={7} />
         ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Day</th>
-                <th>Start Time</th>
-                <th>End Time</th>
-                <th>Max Hours / Day</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {DAYS.map(day => {
-                const entry = getDay(day.num)
-                const isSet = !!entry
-                return (
-                  <tr key={day.num}>
-                    <td style={{
-                      fontWeight: 700,
-                      color: isSet ? '#f0f2f5' : '#7a9ab0',
-                    }}>
-                      {day.label}
-                    </td>
-                    <td style={{ color: isSet ? '#f0f2f5' : '#1e3a4a' }}>
-                      {entry?.startTime?.slice(0, 5) ?? '—'}
-                    </td>
-                    <td style={{ color: isSet ? '#f0f2f5' : '#1e3a4a' }}>
-                      {entry?.endTime?.slice(0, 5) ?? '—'}
-                    </td>
-                    <td style={{ color: isSet ? '#ff6b00' : '#1e3a4a' }}>
-                      {entry?.maxHoursPerDay != null ? `${entry.maxHoursPerDay}h` : '—'}
-                    </td>
-                    <td>
-                      <Btn small variant={isSet ? 'ghost' : 'primary'} onClick={() => openEdit(day)}>
-                        {isSet ? 'EDIT' : 'SET'}
-                      </Btn>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div className="list">
+            {week.map((d, i) => (
+              <div className="list-item wrap" key={d.dayOfWeek} style={{ opacity: d.on ? 1 : 0.7 }}>
+                <label className="row gap-12" style={{ width: 150, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={d.on}
+                    onChange={(e) => update(i, { on: e.target.checked })}
+                    aria-label={`Available on ${DAYS[i]}`}
+                  />
+                  <span className="t-label">{DAYS[i]}</span>
+                </label>
+
+                {d.on ? (
+                  <div className="row gap-8 wrap grow">
+                    <input
+                      type="time"
+                      value={d.startTime}
+                      onChange={(e) => update(i, { startTime: e.target.value })}
+                      style={{ width: 120 }}
+                      aria-label={`${DAYS[i]} start`}
+                    />
+                    <span className="t-mute">to</span>
+                    <input
+                      type="time"
+                      value={d.endTime}
+                      onChange={(e) => update(i, { endTime: e.target.value })}
+                      style={{ width: 120 }}
+                      aria-label={`${DAYS[i]} end`}
+                    />
+                    <span className="t-mute">·</span>
+                    <input
+                      type="number"
+                      min="0.5"
+                      max="24"
+                      step="0.5"
+                      value={d.maxHoursPerDay}
+                      onChange={(e) => update(i, { maxHoursPerDay: e.target.value })}
+                      style={{ width: 80 }}
+                      aria-label={`${DAYS[i]} maximum hours`}
+                    />
+                    <span className="t-sm t-mute">h max</span>
+                  </div>
+                ) : (
+                  <span className="grow t-sm t-faint">Unavailable</span>
+                )}
+              </div>
+            ))}
+          </div>
         )}
 
-        <div style={{
-          marginTop: 24, padding: '12px 16px',
-          background: '#0d1b2a', border: '1px solid #1e3a4a', borderRadius: 3,
-          fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11, color: '#7a9ab0',
-        }}>
-          Each day's entry is saved independently. Setting availability for a day replaces any previous entry for that day.
-        </div>
-      </div>
-
-      <Drawer
-        open={!!drawerDay}
-        onClose={() => setDrawerDay(null)}
-        title={`SET AVAILABILITY — ${drawerDay?.label?.toUpperCase() ?? ''}`}
-      >
-        {saveError && <div style={ERR}>ERROR: {saveError}</div>}
-        <form onSubmit={handleSave}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 18 }}>
-            <div>
-              <label style={LABEL}>Start Time</label>
-              <input
-                type="time"
-                value={form.startTime}
-                onChange={e => setForm(f => ({ ...f, startTime: e.target.value }))}
-                required
-              />
-            </div>
-            <div>
-              <label style={LABEL}>End Time</label>
-              <input
-                type="time"
-                value={form.endTime}
-                onChange={e => setForm(f => ({ ...f, endTime: e.target.value }))}
-                required
-              />
-            </div>
+        {dirty && (
+          <div className="card-footer">
+            <span className="t-sm t-warning grow" style={{ alignSelf: 'center' }}>
+              Unsaved changes
+            </span>
+            <Btn variant="secondary" onClick={() => reload()}>
+              Discard
+            </Btn>
+            <Btn icon="check" loading={saving} disabled={problems.length > 0} onClick={save}>
+              Save week
+            </Btn>
           </div>
-          <div style={FIELD}>
-            <label style={LABEL}>Max Hours / Day</label>
-            <input
-              type="number"
-              min={0}
-              max={24}
-              step={0.5}
-              value={form.maxHoursPerDay}
-              onChange={e => setForm(f => ({ ...f, maxHoursPerDay: e.target.value }))}
-              placeholder="e.g. 8"
-              style={{ maxWidth: 120 }}
-            />
-          </div>
-          <Btn type="submit" disabled={saving}>
-            {saving ? 'SAVING...' : 'SAVE AVAILABILITY'}
-          </Btn>
-        </form>
-      </Drawer>
-    </div>
+        )}
+      </Card>
+    </>
   )
 }

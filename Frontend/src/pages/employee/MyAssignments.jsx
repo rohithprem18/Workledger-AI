@@ -1,63 +1,73 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../../auth/AuthContext";
-import { getMyAssignments, getMyTasks, updateTaskStatus } from "../../api";
-import { useFetch } from "../../hooks/useFetch";
-import PageHeader from "../../components/PageHeader";
-import Btn from "../../components/Btn";
-import StatusPill from "../../components/StatusPill";
-import Calendar from "../../components/Calendar";
-
-const ERR = {
-  padding: "10px 16px",
-  background: "#ef444415",
-  color: "#ef4444",
-  borderLeft: "2px solid #ef4444",
-  marginBottom: 16,
-  fontFamily: "monospace",
-  fontSize: 12,
-};
+import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../../auth/AuthContext'
+import { getMyAssignments, getMyTasks, updateTaskStatus } from '../../api'
+import { useFetch } from '../../hooks/useFetch'
+import PageHeader from '../../components/PageHeader'
+import Btn from '../../components/Btn'
+import StatusPill from '../../components/StatusPill'
+import Calendar from '../../components/Calendar'
+import {
+  Alert,
+  Card,
+  CardHeader,
+  EmptyState,
+  LoadingRows,
+  Tabs,
+  errorText,
+  fmtRange,
+  fmtTime,
+} from '../../components/ui'
 
 function eachDate(startDate, endDate) {
-  const days = [];
-  const cur = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  while (cur <= end) {
-    days.push(cur.toISOString().slice(0, 10));
-    cur.setUTCDate(cur.getUTCDate() + 1);
+  const days = []
+  const cur = new Date(`${startDate}T00:00:00Z`)
+  const end = new Date(`${endDate}T00:00:00Z`)
+  while (cur <= end && days.length < 400) {
+    days.push(cur.toISOString().slice(0, 10))
+    cur.setUTCDate(cur.getUTCDate() + 1)
   }
-  return days;
+  return days
+}
+
+const today = () => new Date().toISOString().slice(0, 10)
+
+export function NotLinked({ title }) {
+  return (
+    <>
+      <PageHeader eyebrow="My work" title={title} />
+      <Card>
+        <EmptyState icon="users" title="No contractor profile on this account">
+          This sign-in is not linked to an employee record. HR can onboard you from People → Employees.
+        </EmptyState>
+      </Card>
+    </>
+  )
 }
 
 export default function MyAssignments() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const empId = user?.employeeId ?? null;
-  const [view, setView] = useState("calendar");
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const empId = user?.employeeId ?? null
+  const [view, setView] = useState('list')
+  const [taskError, setTaskError] = useState(null)
 
   const { data, loading, error } = useFetch(
     () => (empId ? getMyAssignments(empId) : Promise.resolve([])),
     [empId],
-  );
-  const myTasks = useFetch(getMyTasks, []);
-  const [taskActionError, setTaskActionError] = useState(null);
+  )
+  const myTasks = useFetch(getMyTasks, [])
 
-  async function handleTaskStatus(taskId, status) {
-    setTaskActionError(null);
-    try {
-      await updateTaskStatus(taskId, status);
-      myTasks.reload();
-    } catch (err) {
-      setTaskActionError(err?.response?.data?.message ?? "Failed to update task");
-    }
-  }
-
-  const assignments = data ?? [];
+  const assignments = useMemo(() => data ?? [], [data])
+  const now = today()
+  const current = assignments.filter((a) => a.startDate <= now && a.endDate >= now)
+  const upcoming = assignments.filter((a) => a.startDate > now)
+  const past = assignments.filter((a) => a.endDate < now)
 
   const events = useMemo(
     () =>
       assignments
-        .filter((a) => a.status === "ACTIVE")
+        .filter((a) => a.status === 'ACTIVE')
         .flatMap((a) =>
           eachDate(a.startDate, a.endDate).map((d) => ({
             id: `${a.id}-${d}`,
@@ -68,184 +78,169 @@ export default function MyAssignments() {
           })),
         ),
     [assignments],
-  );
+  )
 
-  if (!empId) {
-    return (
+  async function handleTaskStatus(taskId, status) {
+    setTaskError(null)
+    try {
+      await updateTaskStatus(taskId, status)
+      myTasks.reload()
+    } catch (err) {
+      setTaskError(errorText(err, 'Could not update the task'))
+    }
+  }
+
+  if (!empId) return <NotLinked title="Assignments" />
+
+  const logFor = (a, date) =>
+    navigate(`/my-worklogs/new?assignmentId=${a.id}${date ? `&date=${date}` : ''}`)
+
+  const section = (title, list) =>
+    list.length > 0 && (
       <div>
-        <PageHeader title="My Assignments" subtitle="Active work assignments" />
-        <div style={{ padding: "60px 32px", textAlign: "center" }}>
-          <div
-            style={{
-              color: "#7a9ab0",
-              fontFamily: "monospace",
-              fontSize: 13,
-              marginBottom: 8,
-            }}
-          >
-            Employee profile not linked to this account.
-          </div>
-          <div
-            style={{ color: "#7a9ab0", fontFamily: "monospace", fontSize: 11 }}
-          >
-            Contact HR to have your employee record associated with your login.
-          </div>
+        <div className="eyebrow" style={{ marginBottom: 10 }}>
+          {title} · {list.length}
+        </div>
+        <div className="grid grid-2">
+          {list.map((a) => (
+            <Card pad key={a.id}>
+              <div className="row between gap-8" style={{ alignItems: 'flex-start' }}>
+                <div className="grow">
+                  <div className="t-h3 t-wrap">{a.contractTitle}</div>
+                  <div className="t-sm t-mute mt-4">{a.skillName}</div>
+                </div>
+                <StatusPill value={a.status} />
+              </div>
+              <dl className="kv mt-16">
+                <dt>Dates</dt>
+                <dd>{fmtRange(a.startDate, a.endDate)}</dd>
+                <dt>Hours</dt>
+                <dd className="mono">
+                  {fmtTime(a.plannedStartTime)} – {fmtTime(a.plannedEndTime)}
+                </dd>
+              </dl>
+              {a.status === 'ACTIVE' && (
+                <Btn
+                  small
+                  icon="clock"
+                  className="mt-16"
+                  variant={title === 'Current' ? 'primary' : 'secondary'}
+                  onClick={() => logFor(a, title === 'Current' ? now : undefined)}
+                >
+                  Log time
+                </Btn>
+              )}
+            </Card>
+          ))}
         </div>
       </div>
-    );
-  }
+    )
 
-  function onEventClick(info) {
-    const { assignment, workDate } = info.event.extendedProps;
-    navigate(`/my-worklogs/new?assignmentId=${assignment.id}&date=${workDate}`);
-  }
+  const tasks = myTasks.data ?? []
+  const openTasks = tasks.filter((t) => t.status !== 'DONE')
 
   return (
-    <div>
+    <>
       <PageHeader
-        title="My Assignments"
-        subtitle="Active work assignments"
-        action={
-          <div style={{ display: "flex", gap: 6 }}>
-            <Btn
-              small
-              variant={view === "calendar" ? "primary" : "ghost"}
-              onClick={() => setView("calendar")}
-            >
-              CALENDAR
-            </Btn>
-            <Btn
-              small
-              variant={view === "list" ? "primary" : "ghost"}
-              onClick={() => setView("list")}
-            >
-              LIST
-            </Btn>
-          </div>
-        }
-      />
-      <div style={{ padding: "24px 32px" }}>
-        {error && <div style={ERR}>ERROR: {error}</div>}
+        eyebrow="My work"
+        title="Assignments"
+        subtitle="Where you are placed, and when. Log time against an assignment once the work is done."
+      >
+        <Btn icon="clock" onClick={() => navigate('/my-worklogs/new')}>
+          Log time
+        </Btn>
+      </PageHeader>
 
-        {loading ? (
-          <div
-            style={{ color: "#7a9ab0", fontFamily: "monospace", fontSize: 12 }}
-          >
-            Loading...
-          </div>
-        ) : assignments.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "60px 0",
-              color: "#7a9ab0",
-              fontFamily: "monospace",
-              fontSize: 13,
-            }}
-          >
-            No assignments found
-          </div>
-        ) : view === "calendar" ? (
-          <Calendar
-            events={events}
-            view="timeGridWeek"
-            onEventClick={onEventClick}
-            height={640}
-          />
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Contract</th>
-                <th>Skill</th>
-                <th>Start Date</th>
-                <th>End Date</th>
-                <th>Planned Start</th>
-                <th>Planned End</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {assignments.map((a) => (
-                <tr key={a.id}>
-                  <td style={{ color: "#f0f2f5", fontWeight: 600 }}>
-                    {a.contractTitle ?? a.contractId ?? "—"}
-                  </td>
-                  <td>{a.skillName ?? "—"}</td>
-                  <td>{a.startDate}</td>
-                  <td>{a.endDate}</td>
-                  <td>{a.plannedStartTime ?? "—"}</td>
-                  <td>{a.plannedEndTime ?? "—"}</td>
-                  <td>
-                    <StatusPill value={a.status ?? "ACTIVE"} />
-                  </td>
-                  <td>
-                    {a.status !== "CANCELLED" && (
-                      <Btn
-                        small
-                        onClick={() =>
-                          navigate(`/my-worklogs/new?assignmentId=${a.id}`)
-                        }
-                      >
-                        SUBMIT LOG
-                      </Btn>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      {error && <Alert>{error}</Alert>}
+
+      <div style={{ marginBottom: 16 }}>
+        <Tabs
+          value={view}
+          onChange={setView}
+          options={[
+            { value: 'list', label: 'Assignments', count: assignments.length },
+            { value: 'calendar', label: 'Calendar' },
+            { value: 'tasks', label: 'Tasks', count: openTasks.length },
+          ]}
+        />
       </div>
 
-      {/* My Tasks */}
-      <div style={{ margin: "0 32px 32px", background: "#0d1b2a", border: "1px solid #1e3a4a", borderRadius: 3 }}>
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid #1e3a4a", fontFamily: "ui-monospace, Consolas, monospace", fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: "#7a9ab0" }}>
-          MY TASKS
+      {view === 'tasks' ? (
+        <Card>
+          <CardHeader title="Milestone tasks" subtitle="Work assigned to you on milestone contracts" />
+          {taskError && (
+            <div className="card-body">
+              <Alert>{taskError}</Alert>
+            </div>
+          )}
+          {myTasks.loading ? (
+            <LoadingRows />
+          ) : tasks.length === 0 ? (
+            <EmptyState icon="list" title="No tasks">
+              Tasks assigned to you on milestone contracts appear here.
+            </EmptyState>
+          ) : (
+            <div className="list">
+              {tasks.map((t) => (
+                <div className="list-item wrap" key={t.id}>
+                  <div className="grow" style={{ minWidth: 180 }}>
+                    <div
+                      className="t-label"
+                      style={t.status === 'DONE' ? { textDecoration: 'line-through', color: 'var(--mute)' } : undefined}
+                    >
+                      {t.parentId && <span className="t-mute">↳ </span>}
+                      {t.name}
+                    </div>
+                    <div className="t-sm t-mute">
+                      {t.contractTitle} · {t.milestoneLabel}
+                    </div>
+                  </div>
+                  <StatusPill value={t.status} />
+                  {t.status === 'PENDING' && (
+                    <Btn small variant="secondary" onClick={() => handleTaskStatus(t.id, 'IN_PROGRESS')}>
+                      Start
+                    </Btn>
+                  )}
+                  {t.status !== 'DONE' && (
+                    <Btn small variant="approve" icon="check" onClick={() => handleTaskStatus(t.id, 'DONE')}>
+                      Done
+                    </Btn>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      ) : loading ? (
+        <Card>
+          <LoadingRows />
+        </Card>
+      ) : assignments.length === 0 ? (
+        <Card>
+          <EmptyState icon="briefcase" title="No assignments yet">
+            When a delivery manager places you on a contract it appears here.
+          </EmptyState>
+        </Card>
+      ) : view === 'calendar' ? (
+        <Card>
+          <div className="card-body">
+            <Calendar
+              events={events}
+              view="timeGridWeek"
+              initialDate={current.length ? now : (upcoming[0] ?? past[past.length - 1])?.startDate}
+              onEventClick={(info) => logFor(info.event.extendedProps.assignment, info.event.extendedProps.workDate)}
+              height={640}
+            />
+            <p className="t-sm t-mute mt-12">Select a block to log time for that day.</p>
+          </div>
+        </Card>
+      ) : (
+        <div className="stack gap-32">
+          {section('Current', current)}
+          {section('Upcoming', upcoming)}
+          {section('Finished', past)}
         </div>
-        {(taskActionError || myTasks.error) && (
-          <div style={{ ...ERR, margin: "12px 16px 0" }}>ERROR: {taskActionError || myTasks.error}</div>
-        )}
-        {myTasks.loading ? (
-          <div style={{ padding: 16, color: "#7a9ab0", fontFamily: "monospace", fontSize: 12 }}>Loading...</div>
-        ) : (myTasks.data ?? []).length === 0 ? (
-          <div style={{ padding: 16, color: "#7a9ab0", fontFamily: "monospace", fontSize: 12 }}>No tasks assigned to you</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Task</th>
-                <th>Milestone</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(myTasks.data ?? []).map(t => (
-                <tr key={t.id}>
-                  <td style={{ color: t.status === "DONE" ? "#3a5a6a" : "#f0f2f5", textDecoration: t.status === "DONE" ? "line-through" : "none" }}>
-                    {t.parentId && <span style={{ color: "#3a5a6a", marginRight: 6 }}>↳</span>}
-                    {t.name}
-                  </td>
-                  <td style={{ color: "#7a9ab0", fontSize: 11, fontFamily: "monospace" }}>{t.milestoneId}</td>
-                  <td>
-                    <StatusPill value={t.status} />
-                  </td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    {t.status === "PENDING" && (
-                      <Btn small variant="ghost" onClick={() => handleTaskStatus(t.id, "IN_PROGRESS")}>START</Btn>
-                    )}
-                    {t.status !== "DONE" && (
-                      <Btn small variant="approve" onClick={() => handleTaskStatus(t.id, "DONE")}>MARK DONE</Btn>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
+      )}
+    </>
+  )
 }

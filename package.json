@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Contingent workforce intelligence platform \u2014 Node API + React, deployed on Vercel",
+  "description": "Contingent workforce intelligence platform — Node API + React, deployed on Vercel",
   "engines": {
     "node": ">=20"
   },
@@ -14,7 +14,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "migrate": "tsx server/db/migrate.ts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "ui:check": "node scripts/ui-check.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
@@ -28,6 +30,7 @@
     "@types/express": "^5.0.3",
     "@types/node": "^22.18.1",
     "@types/pg": "^8.23.1",
+    "playwright": "^1.63.0",
     "tsx": "^4.20.6",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

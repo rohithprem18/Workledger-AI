@@ -1,54 +1,91 @@
-import { useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
-  getAllInvoices, getInvoiceAudit, runInvoiceAudit,
-  overrideInvoiceAudit, approveInvoice,
+  getAllInvoices,
+  getInvoiceAudit,
+  runInvoiceAudit,
+  overrideInvoiceAudit,
+  approveInvoice,
 } from '../../api'
 import { useFetch } from '../../hooks/useFetch'
+import { useAuth } from '../../auth/AuthContext'
 import PageHeader from '../../components/PageHeader'
 import Btn from '../../components/Btn'
+import Icon from '../../components/Icon'
 import StatusPill from '../../components/StatusPill'
+import {
+  Alert,
+  Card,
+  EmptyState,
+  Field,
+  LoadingRows,
+  errorText,
+  fmtDateTime,
+  fmtRange,
+  money,
+} from '../../components/ui'
 
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
+const VERDICT = {
+  CLEAN: { tone: 'success', icon: 'checkCircle', text: 'All three sources reconcile.' },
+  ADVISORY: { tone: 'warning', icon: 'info', text: 'Worth a look, but nothing blocks approval.' },
+  BLOCKED: { tone: 'error', icon: 'alert', text: 'Approval is refused until these are resolved or overridden.' },
 }
-const OK = {
-  padding: '10px 16px', background: '#00c85115', color: '#00c851',
-  borderLeft: '2px solid #00c851', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
-}
-const MUTED = { color: '#7a9ab0', fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12 }
-const CARD = { border: '1px solid #1e3a4a', borderRadius: 3, background: '#03121d' }
 
-const VERDICT_COLOR = { CLEAN: '#00c851', ADVISORY: '#ff6b00', BLOCKED: '#ef4444' }
-const SEVERITY_COLOR = { BLOCKER: '#ef4444', WARNING: '#ff6b00', INFO: '#7a9ab0' }
+const SEVERITY_TONE = { BLOCKER: 'error', WARNING: 'warning', INFO: 'neutral' }
 
+/**
+ * The deterministic invoice auditor. Every number on this screen is computed
+ * in code from the contract, the approved work and the invoice; the AI only
+ * writes the prose explaining them, and is labelled wherever it appears.
+ */
 export default function InvoiceAudit() {
-  const invoices = useFetch(getAllInvoices, [])
+  const { hasPermission } = useAuth()
+  const canRun = hasPermission('RUN_INVOICE_AUDIT')
+  const canApprove = hasPermission('APPROVE_INVOICE')
+  const canOverride = hasPermission('OVERRIDE_INVOICE_AUDIT')
 
+  const [params, setParams] = useSearchParams()
+  const invoices = useFetch(getAllInvoices, [])
   const [selected, setSelected] = useState(null)
   const [run, setRun] = useState(null)
+  const [runLoading, setRunLoading] = useState(false)
   const [busy, setBusy] = useState(null)
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
   const [overrideText, setOverrideText] = useState('')
 
-  const invList = invoices.data ?? []
+  const list = useMemo(() => invoices.data ?? [], [invoices.data])
 
-  const select = useCallback(async (invoice) => {
-    setSelected(invoice)
-    setRun(null)
-    setError(null)
-    setNotice(null)
-    setOverrideText('')
-    try {
-      setRun(await getInvoiceAudit(invoice.id))
-    } catch {
-      // No audit yet is the normal starting state, not an error worth showing.
+  const select = useCallback(
+    async (invoice) => {
+      setSelected(invoice)
       setRun(null)
-    }
-  }, [])
+      setError(null)
+      setNotice(null)
+      setOverrideText('')
+      setParams({ invoice: invoice.id }, { replace: true })
+      setRunLoading(true)
+      try {
+        // No audit yet comes back as `data: null`, which the client's unwrap
+        // turns into the bare envelope — so only a real run has a verdict.
+        const result = await getInvoiceAudit(invoice.id)
+        setRun(result?.verdict ? result : null)
+      } catch {
+        setRun(null) // not audited yet — the normal starting state
+      } finally {
+        setRunLoading(false)
+      }
+    },
+    [setParams],
+  )
+
+  // Deep link: /finance/audit?invoice=<id>
+  const wanted = params.get('invoice')
+  useEffect(() => {
+    if (!wanted || selected?.id === wanted) return
+    const match = list.find((i) => i.id === wanted)
+    if (match) select(match)
+  }, [wanted, list, selected, select])
 
   async function handleRun() {
     setBusy('audit')
@@ -57,7 +94,7 @@ export default function InvoiceAudit() {
     try {
       setRun(await runInvoiceAudit(selected.id))
     } catch (e) {
-      setError(typeof e === 'string' ? e : 'Audit failed')
+      setError(errorText(e, 'Audit failed'))
     } finally {
       setBusy(null)
     }
@@ -68,10 +105,10 @@ export default function InvoiceAudit() {
     setError(null)
     try {
       await overrideInvoiceAudit(selected.id, overrideText)
-      setNotice('Override recorded. This invoice can now be approved.')
+      setNotice('Override recorded against this invoice. It can now be approved.')
       setOverrideText('')
     } catch (e) {
-      setError(typeof e === 'string' ? e : 'Could not record the override')
+      setError(errorText(e, 'Could not record the override'))
     } finally {
       setBusy(null)
     }
@@ -82,258 +119,282 @@ export default function InvoiceAudit() {
     setError(null)
     try {
       await approveInvoice(selected.id)
-      setNotice('Invoice approved and sent to the client.')
-      invoices.reload()
+      setNotice('Invoice approved.')
       setSelected((s) => ({ ...s, status: 'APPROVED' }))
+      invoices.reload()
     } catch (e) {
-      setError(typeof e === 'string' ? e : 'Approval failed')
+      setError(errorText(e, 'Approval failed'))
     } finally {
       setBusy(null)
     }
   }
 
   return (
-    <div>
+    <>
       <PageHeader
-        title="Invoice Auditor"
-        subtitle="Reconcile every invoice against the contract, the approved work, and its own line items"
+        eyebrow="Invoice auditor"
+        title="Three-way reconciliation"
+        subtitle="Each invoice is checked against the contract that authorises it and the approved work behind it — before anyone can approve it."
       />
 
-      <div style={{ padding: '24px 32px', display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        {/* ------------------------------------------------- invoice list */}
-        <div style={{ ...CARD, width: 320, flexShrink: 0 }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #1e3a4a', ...MUTED, fontWeight: 700, letterSpacing: '0.1em' }}>
-            INVOICES ({invList.length})
+      <div className="grid grid-sidebar">
+        {/* ------------------------------------------------ invoice rail */}
+        <Card>
+          <div className="card-header">
+            <span className="eyebrow">Invoices</span>
+            <span className="t-sm t-mute">{list.length}</span>
           </div>
           {invoices.loading ? (
-            <div style={{ padding: 16, ...MUTED }}>Loading…</div>
-          ) : invList.length === 0 ? (
-            <div style={{ padding: 16, ...MUTED }}>No invoices yet</div>
+            <LoadingRows rows={4} />
+          ) : list.length === 0 ? (
+            <div className="card-pad-sm t-sm t-mute">No invoices yet.</div>
           ) : (
-            invList.map((inv) => (
-              <button
-                key={inv.id}
-                onClick={() => select(inv)}
-                style={{
-                  display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
-                  padding: '10px 16px', border: 'none',
-                  borderBottom: '1px solid #0f2433',
-                  borderLeft: selected?.id === inv.id ? '2px solid #ff6b00' : '2px solid transparent',
-                  background: selected?.id === inv.id ? '#ff6b0010' : 'transparent',
-                }}
-              >
-                <div style={{ color: '#f0f2f5', fontSize: 12, fontWeight: 600 }}>
-                  {inv.contractTitle ?? 'Contract'}
-                </div>
-                <div style={{ ...MUTED, fontSize: 10, marginTop: 4 }}>
-                  {inv.periodStart} → {inv.periodEnd} · {inv.status}
-                </div>
-                <div style={{ color: '#ff6b00', fontSize: 12, fontWeight: 700, marginTop: 2 }}>
-                  {Number(inv.totalAmount ?? 0).toFixed(2)}
-                </div>
-              </button>
-            ))
-          )}
-        </div>
-
-        {/* ------------------------------------------------------ audit view */}
-        <div style={{ flex: 1, minWidth: 440 }}>
-          {!selected ? (
-            <div style={{ ...CARD, padding: 48, textAlign: 'center', ...MUTED }}>
-              Select an invoice to reconcile it
+            <div className="list" style={{ maxHeight: 560, overflowY: 'auto' }}>
+              {list.map((inv) => (
+                <button
+                  key={inv.id}
+                  type="button"
+                  className={`list-item${selected?.id === inv.id ? ' active' : ''}`}
+                  onClick={() => select(inv)}
+                >
+                  <div className="grow">
+                    <div className="t-label t-wrap">{inv.contractTitle ?? 'Invoice'}</div>
+                    <div className="t-sm t-mute">{fmtRange(inv.periodStart, inv.periodEnd)}</div>
+                  </div>
+                  <div className="stack gap-4" style={{ alignItems: 'flex-end' }}>
+                    <span className="t-label t-num">{money(inv.totalAmount)}</span>
+                    <StatusPill value={inv.status} />
+                  </div>
+                </button>
+              ))}
             </div>
+          )}
+        </Card>
+
+        {/* ------------------------------------------------- audit panel */}
+        <div className="stack gap-16" style={{ minWidth: 0 }}>
+          {error && <Alert onClose={() => setError(null)}>{error}</Alert>}
+          {notice && (
+            <Alert tone="success" onClose={() => setNotice(null)}>
+              {notice}
+            </Alert>
+          )}
+
+          {!selected ? (
+            <Card>
+              <EmptyState icon="scan" title="Select an invoice to reconcile">
+                The auditor checks arithmetic, authorised rates, approved hours, the contract term and
+                duplicate billing.
+              </EmptyState>
+            </Card>
           ) : (
             <>
-              {error && <div style={ERR}>ERROR: {error}</div>}
-              {notice && <div style={OK}>{notice}</div>}
-
-              <div style={{ ...CARD, padding: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ color: '#f0f2f5', fontSize: 15, fontWeight: 600 }}>
-                      {selected.contractTitle ?? 'Invoice'}
-                    </div>
-                    <div style={{ ...MUTED, marginTop: 6 }}>
-                      {selected.periodStart} → {selected.periodEnd} ·{' '}
+              <Card pad>
+                <div className="row between wrap gap-12">
+                  <div className="grow">
+                    <div className="row gap-8 wrap">
+                      <h2 className="t-h2">{selected.contractTitle}</h2>
                       <StatusPill value={selected.status} />
                     </div>
+                    <div className="t-sm t-mute mt-4">
+                      {fmtRange(selected.periodStart, selected.periodEnd)} ·{' '}
+                      {selected.milestoneId ? 'Milestone invoice' : 'Hourly invoice'}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Btn onClick={handleRun} disabled={busy === 'audit'}>
-                      {busy === 'audit' ? 'RECONCILING…' : run ? 'RE-RUN AUDIT' : 'RUN AUDIT'}
-                    </Btn>
-                    {selected.status === 'DRAFT' && (
-                      <Btn variant="approve" onClick={handleApprove} disabled={busy === 'approve'}>
-                        {busy === 'approve' ? 'APPROVING…' : 'APPROVE INVOICE'}
+                  <div className="cluster">
+                    {canRun && (
+                      <Btn
+                        variant={run ? 'secondary' : 'primary'}
+                        icon="scan"
+                        loading={busy === 'audit'}
+                        onClick={handleRun}
+                      >
+                        {run ? 'Re-run audit' : 'Run audit'}
+                      </Btn>
+                    )}
+                    {selected.status === 'DRAFT' && canApprove && (
+                      <Btn variant="approve" icon="check" loading={busy === 'approve'} onClick={handleApprove}>
+                        Approve
                       </Btn>
                     )}
                   </div>
                 </div>
-
-                {!run && (
-                  <div style={{ ...MUTED, marginTop: 16, lineHeight: 1.6 }}>
-                    This invoice has not been reconciled. Approval is refused until it has been —
-                    an unchecked invoice is not the same as a clean one.
+                {!runLoading && !run && (
+                  <div className="mt-16">
+                    <Alert tone="info">
+                      Not reconciled yet. An unchecked invoice is not the same as a clean one, so approval is
+                      refused until an audit has run.
+                    </Alert>
                   </div>
                 )}
-              </div>
+              </Card>
 
-              {run && <AuditResult run={run} />}
+              {runLoading ? (
+                <Card>
+                  <LoadingRows rows={5} />
+                </Card>
+              ) : (
+                run && <AuditResult run={run} />
+              )}
 
-              {run?.verdict === 'BLOCKED' && (
-                <div style={{ ...CARD, padding: 20, marginTop: 16, borderColor: '#ef444450' }}>
-                  <div style={{ ...MUTED, fontWeight: 700, letterSpacing: '0.1em', color: '#ef4444' }}>
-                    OVERRIDE
+              {run?.verdict === 'BLOCKED' && selected.status === 'DRAFT' && canOverride && (
+                <Card pad>
+                  <div className="row gap-8">
+                    <Icon name="lock" />
+                    <h3 className="t-h3">Approve anyway</h3>
                   </div>
-                  <div style={{ ...MUTED, marginTop: 8, lineHeight: 1.6 }}>
-                    Approving despite blocking findings requires a reason. It is stored against the
-                    invoice with your identity and appears in the audit trail.
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                    <input
+                  <p className="t-sm t-body mt-8">
+                    Record why the blocking findings are acceptable. The reason is stored against the invoice
+                    with your name and appears in the audit trail.
+                  </p>
+                  <Field label="Reason">
+                    <textarea
                       value={overrideText}
                       onChange={(e) => setOverrideText(e.target.value)}
-                      placeholder="Why are these findings being accepted?"
-                      style={{ flex: 1, minWidth: 260 }}
+                      placeholder="e.g. Rate change agreed with the client by email on 3 April; contract amendment pending"
                     />
+                  </Field>
+                  <div className="row end mt-12">
                     <Btn
                       variant="danger"
+                      loading={busy === 'override'}
+                      disabled={overrideText.trim().length < 10}
                       onClick={handleOverride}
-                      disabled={busy === 'override' || overrideText.trim().length < 10}
                     >
-                      {busy === 'override' ? 'RECORDING…' : 'RECORD OVERRIDE'}
+                      Record override
                     </Btn>
                   </div>
-                </div>
+                </Card>
               )}
             </>
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-function AuditResult({ run }) {
-  const color = VERDICT_COLOR[run.verdict] ?? '#7a9ab0'
-  const aiWritten = run.narrativeEngine && run.narrativeEngine !== 'deterministic'
-
-  return (
-    <>
-      {/* ------------------------------------------------ three sources */}
-      <div style={{ ...CARD, padding: 20, marginTop: 16, borderColor: `${color}50` }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ color, fontSize: 22, fontWeight: 700, letterSpacing: '0.04em' }}>
-            {run.verdict}
-          </div>
-          <div style={{ ...MUTED }}>
-            {run.blockerCount} blocker · {run.warningCount} warning · {run.infoCount} info
-            {' · '}rules v{run.rulesVersion}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 32, marginTop: 20, flexWrap: 'wrap' }}>
-          <Source label="1 · Contract authorises" value={run.contractTotal} />
-          <Source label="2 · Approved work worth" value={run.approvedWorkTotal} />
-          <Source label="3 · Invoice presents" value={run.invoicedTotal} accent="#ff6b00" />
-        </div>
-
-        {run.narrative && (
-          <div style={{
-            marginTop: 20, padding: '12px 14px', borderRadius: 2,
-            background: '#7a9ab008', borderLeft: '2px solid #7a9ab0',
-          }}>
-            <div style={{ ...MUTED, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>
-              {aiWritten ? `SUMMARY · AI-ASSISTED (${run.narrativeEngine})` : 'SUMMARY'}
-            </div>
-            <div style={{ color: '#c3d4e0', fontSize: 13, marginTop: 6, lineHeight: 1.65 }}>
-              {run.narrative}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ---------------------------------------------------- findings */}
-      {(run.findings ?? []).length === 0 ? (
-        <div style={{ ...CARD, padding: 32, marginTop: 16, textAlign: 'center', ...MUTED }}>
-          All three sources agree. Nothing flagged.
-        </div>
-      ) : (
-        run.findings.map((f) => <Finding key={f.id} finding={f} />)
-      )}
     </>
   )
 }
 
-function Source({ label, value, accent = '#f0f2f5' }) {
-  return (
-    <div>
-      <div style={{ ...MUTED, fontSize: 10, letterSpacing: '0.1em', fontWeight: 700 }}>
-        {label.toUpperCase()}
-      </div>
-      <div style={{ color: accent, fontSize: 19, fontWeight: 700, marginTop: 3 }}>
-        {value == null ? '—' : Number(value).toFixed(2)}
-      </div>
-    </div>
-  )
-}
-
-function Finding({ finding }) {
-  const color = SEVERITY_COLOR[finding.severity] ?? '#7a9ab0'
+function AuditResult({ run }) {
+  const verdict = VERDICT[run.verdict] ?? VERDICT.ADVISORY
+  const aiWritten = run.narrativeEngine && run.narrativeEngine !== 'deterministic'
+  const sources = [
+    { label: 'Contract authorises', value: run.contractTotal, n: 1 },
+    { label: 'Approved work is worth', value: run.approvedWorkTotal, n: 2 },
+    { label: 'Invoice presents', value: run.invoicedTotal, n: 3 },
+  ]
+  const agree = new Set(sources.map((s) => Number(s.value).toFixed(2))).size === 1
 
   return (
-    <div style={{ ...CARD, padding: 16, marginTop: 12, borderLeft: `2px solid ${color}` }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ color: '#f0f2f5', fontSize: 14, fontWeight: 600 }}>{finding.title}</div>
-        <div style={{ ...MUTED, color, fontWeight: 700, fontSize: 10, letterSpacing: '0.1em' }}>
-          {finding.severity} · {finding.ruleCode}
-        </div>
-      </div>
-
-      {/* The computed statement: always present, always authoritative. */}
-      <div style={{ color: '#c3d4e0', fontSize: 13, marginTop: 8, lineHeight: 1.65 }}>
-        {finding.detail}
-      </div>
-
-      {(finding.expectedValue != null || finding.actualValue != null) && (
-        <div style={{ display: 'flex', gap: 24, marginTop: 12, flexWrap: 'wrap' }}>
-          {finding.expectedValue != null && (
-            <Cell label="Expected" value={finding.expectedValue} />
-          )}
-          {finding.actualValue != null && (
-            <Cell label="Actual" value={finding.actualValue} accent={color} />
-          )}
-          {finding.delta != null && (
-            <Cell label="Delta" value={Number(finding.delta).toFixed(2)} accent={color} />
-          )}
-        </div>
-      )}
-
-      {/* Model prose, clearly separated from the computed numbers above. */}
-      {finding.explanation && (
-        <div style={{
-          marginTop: 12, padding: '10px 12px', borderRadius: 2,
-          background: '#7a9ab008', borderLeft: '2px solid #7a9ab040',
-        }}>
-          <div style={{ ...MUTED, fontSize: 10, fontWeight: 700, letterSpacing: '0.1em' }}>
-            AI EXPLANATION
-          </div>
-          <div style={{ color: '#a8bfd0', fontSize: 12, marginTop: 5, lineHeight: 1.6 }}>
-            {finding.explanation}
+    <>
+      <Card>
+        <div
+          className={`card-body${run.verdict === 'CLEAN' ? ' mesh mesh-soft' : ''}`}
+          style={{ borderRadius: '12px 12px 0 0' }}
+        >
+          <div className="row between wrap gap-12">
+            <div className="row gap-12">
+              <span className={`badge badge-${verdict.tone}`} style={{ height: 28, padding: '0 12px', fontSize: 14 }}>
+                {run.verdict}
+              </span>
+              <span className="t-body">{verdict.text}</span>
+            </div>
+            <span className="t-sm t-mute">
+              {run.blockerCount} blocker · {run.warningCount} warning · {run.infoCount} info · rules v
+              {run.rulesVersion}
+            </span>
           </div>
         </div>
-      )}
-    </div>
-  )
-}
 
-function Cell({ label, value, accent = '#f0f2f5' }) {
-  return (
-    <div>
-      <div style={{ ...MUTED, fontSize: 9, letterSpacing: '0.1em', fontWeight: 700 }}>
-        {label.toUpperCase()}
-      </div>
-      <div style={{ color: accent, fontSize: 14, fontWeight: 600, marginTop: 2 }}>{value}</div>
-    </div>
+        <div className="grid grid-3" style={{ gap: 0, borderTop: '1px solid var(--hairline)' }}>
+          {sources.map((s, i) => (
+            <div
+              key={s.n}
+              className="stat"
+              style={{ borderLeft: i ? '1px solid var(--hairline)' : 0 }}
+            >
+              <div className="eyebrow">
+                {s.n} · {s.label}
+              </div>
+              <div className="stat-value">{money(s.value)}</div>
+            </div>
+          ))}
+        </div>
+        <div className="card-footer" style={{ justifyContent: 'flex-start' }}>
+          <span className={`t-sm ${agree ? 't-success' : 't-warning'}`}>
+            {agree ? 'All three sources agree.' : 'The sources disagree — see the findings below.'}
+          </span>
+          <span className="grow" />
+          <span className="t-sm t-mute">{fmtDateTime(run.createdAt)}</span>
+        </div>
+      </Card>
+
+      {run.narrative && (
+        <Card pad>
+          <div className="row gap-8">
+            <span className="eyebrow">Summary</span>
+            {aiWritten && <span className="badge badge-violet badge-plain">AI · {run.narrativeEngine}</span>}
+          </div>
+          <p className="t-body-lg mt-8">{run.narrative}</p>
+        </Card>
+      )}
+
+      {(run.findings ?? []).length === 0 ? (
+        <Card>
+          <EmptyState icon="checkCircle" title="No findings">
+            Arithmetic, rates, approved hours, contract term and duplicate billing all check out.
+          </EmptyState>
+        </Card>
+      ) : (
+        <div className="stack gap-12">
+          {run.findings.map((f) => (
+            <Card key={f.id} pad="sm" style={{ boxShadow: `inset 3px 0 0 var(--${f.severity === 'BLOCKER' ? 'error' : f.severity === 'WARNING' ? 'warning' : 'hairline-strong'})` }}>
+              <div className="row between wrap gap-8">
+                <div className="t-label">{f.title}</div>
+                <div className="cluster">
+                  <span className="t-sm t-mute mono">{f.ruleCode}</span>
+                  <span className={`badge badge-${SEVERITY_TONE[f.severity] ?? 'neutral'}`}>{f.severity.toLowerCase()}</span>
+                </div>
+              </div>
+              <p className="t-body mt-8">{f.detail}</p>
+
+              {(f.expectedValue != null || f.actualValue != null) && (
+                <div className="cluster gap-16 mt-12">
+                  {f.expectedValue != null && (
+                    <div>
+                      <div className="eyebrow">Expected</div>
+                      <div className="mono t-ink">{f.expectedValue}</div>
+                    </div>
+                  )}
+                  {f.actualValue != null && (
+                    <div>
+                      <div className="eyebrow">Actual</div>
+                      <div className="mono t-ink">{f.actualValue}</div>
+                    </div>
+                  )}
+                  {f.delta != null && Number(f.delta) !== 0 && (
+                    <div>
+                      <div className="eyebrow">Delta</div>
+                      <div className={`mono ${Number(f.delta) > 0 ? 't-error' : 't-warning'}`}>
+                        {Number(f.delta) > 0 ? '+' : ''}
+                        {Number(f.delta).toFixed(2)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {f.explanation && (
+                <div className="quote mt-12" style={{ fontFamily: 'var(--sans)', fontSize: 13 }}>
+                  <span className="badge badge-violet badge-plain" style={{ marginBottom: 6 }}>
+                    AI explanation
+                  </span>
+                  <div className="t-body">{f.explanation}</div>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </>
   )
 }

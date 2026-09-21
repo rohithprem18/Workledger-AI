@@ -1,27 +1,66 @@
-export default function Btn({ children, onClick, type = 'button', variant = 'primary', disabled, small }) {
-  const base = {
-    cursor: disabled ? 'not-allowed' : 'pointer',
-    border: 'none',
-    borderRadius: 2,
-    fontFamily: 'ui-monospace, Consolas, monospace',
-    fontWeight: 700,
-    letterSpacing: '0.08em',
-    fontSize: small ? 10 : 11,
-    padding: small ? '4px 10px' : '7px 16px',
-    transition: 'opacity 0.12s',
-    opacity: disabled ? 0.45 : 1,
-    whiteSpace: 'nowrap',
-  }
-  const styles = {
-    primary:  { ...base, background: '#ff6b00', color: '#010b13' },
-    danger:   { ...base, background: '#ef4444', color: '#fff' },
-    ghost:    { ...base, background: 'none', color: '#7a9ab0', border: '1px solid #1e3a4a' },
-    approve:  { ...base, background: '#00c85120', color: '#00c851', border: '1px solid #00c85135' },
-    reject:   { ...base, background: '#ef444420', color: '#ef4444', border: '1px solid #ef444435' },
-  }
+import Icon from './Icon'
+
+/**
+ * Button.
+ *
+ * Two shapes, by context, per the Geist system: 6px squares for in-app
+ * controls (the default) and full pills for the few marketing-style CTAs
+ * (`pill`). Legacy variant names (`approve`, `reject`) still map, so older
+ * call sites keep working.
+ */
+const VARIANTS = {
+  primary: 'btn-primary',
+  secondary: 'btn-secondary',
+  ghost: 'btn-ghost',
+  danger: 'btn-danger',
+  approve: 'btn-success',
+  success: 'btn-success',
+  reject: 'btn-reject',
+}
+
+export default function Btn({
+  children,
+  onClick,
+  type = 'button',
+  variant = 'primary',
+  disabled,
+  loading,
+  small,
+  size,
+  pill,
+  block,
+  icon,
+  iconRight,
+  title,
+  className = '',
+  ...rest
+}) {
+  const classes = [
+    'btn',
+    VARIANTS[variant] ?? VARIANTS.primary,
+    small || size === 'sm' ? 'btn-sm' : '',
+    size === 'lg' ? 'btn-lg' : '',
+    pill ? 'btn-pill' : '',
+    block ? 'btn-block' : '',
+    !children && icon ? 'btn-icon' : '',
+    className,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
-    <button type={type} onClick={onClick} disabled={disabled} style={styles[variant] ?? styles.primary}>
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled || loading}
+      className={classes}
+      title={title}
+      aria-busy={loading || undefined}
+      {...rest}
+    >
+      {loading ? <span className="spinner" /> : icon && <Icon name={icon} />}
       {children}
+      {iconRight && !loading && <Icon name={iconRight} />}
     </button>
   )
 }

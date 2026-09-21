@@ -135,13 +135,16 @@ export const capacitySpecification: Specification = async ({
   );
   const byDay = new Map(availability.map((a) => [Number(a.day_of_week), a]));
 
+  // A day the contractor has no availability for is a non-working day, not a
+  // conflict: a Mon–Fri contractor can hold a month-long assignment, and the
+  // weekends inside it are simply not worked. What must hold is that the range
+  // contains working days at all, and that each one fits.
+  let workingDays = 0;
+
   for (const date of eachDate(range)) {
     const day = byDay.get(isoDayOfWeek(date));
-    if (!day) {
-      throw new BusinessRuleError(
-        `Contractor has no availability set for ${date}, so cannot be assigned that day`,
-      );
-    }
+    if (!day) continue;
+    workingDays++;
 
     const maxMinutes = Math.round(Number(day.max_hours_per_day) * 60);
     if (plannedMinutes > maxMinutes) {
@@ -160,6 +163,12 @@ export const capacitySpecification: Specification = async ({
         );
       }
     }
+  }
+
+  if (workingDays === 0) {
+    throw new BusinessRuleError(
+      `Contractor is not available on any day between ${range.startDate} and ${range.endDate}`,
+    );
   }
 };
 

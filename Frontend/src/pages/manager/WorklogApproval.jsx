@@ -1,360 +1,318 @@
-import { Fragment, useMemo, useState } from "react";
-import { getPendingWorklogs, approveWorklog } from "../../api";
-import { useFetch } from "../../hooks/useFetch";
-import PageHeader from "../../components/PageHeader";
-import Btn from "../../components/Btn";
-import StatusPill from "../../components/StatusPill";
-import Calendar from "../../components/Calendar";
+import { useMemo, useState } from 'react'
+import { getPendingWorklogs, approveWorklog } from '../../api'
+import { useFetch } from '../../hooks/useFetch'
+import PageHeader from '../../components/PageHeader'
+import Btn from '../../components/Btn'
+import Drawer from '../../components/Drawer'
+import Calendar from '../../components/Calendar'
+import {
+  Alert,
+  Card,
+  EmptyState,
+  Field,
+  LoadingRows,
+  Tabs,
+  errorText,
+  fmtDate,
+  fmtTime,
+  hours,
+  initials,
+} from '../../components/ui'
 
-const ERR = {
-  padding: "10px 16px",
-  background: "#ef444415",
-  color: "#ef4444",
-  borderLeft: "2px solid #ef4444",
-  marginBottom: 16,
-  fontFamily: "monospace",
-  fontSize: 12,
-};
-const LABEL = {
-  display: "block",
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: "0.1em",
-  color: "#7a9ab0",
-  fontFamily: "ui-monospace, Consolas, monospace",
-  marginBottom: 6,
-  textTransform: "uppercase",
-};
+function isoOffset(days) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
 
-function todayInputValue() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function toMinutes(t) {
+  const [h, m] = String(t).split(':').map(Number)
+  return h * 60 + m
 }
-function addYearsInputValue(dateStr, years) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setFullYear(d.getFullYear() + years);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-function totalHours(segments) {
-  if (!segments?.length) return "—";
-  let mins = 0;
-  for (const s of segments) {
-    const [sh, sm] = s.startTime.split(":").map(Number);
-    const [eh, em] = s.endTime.split(":").map(Number);
-    mins += eh * 60 + em - (sh * 60 + sm);
-  }
-  return (mins / 60).toFixed(2);
+
+/** A 24-hour strip with each logged segment drawn to scale. */
+function DayStrip({ segments = [] }) {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        height: 10,
+        borderRadius: 999,
+        background: 'var(--well)',
+        overflow: 'hidden',
+      }}
+      aria-hidden="true"
+    >
+      {segments.map((s, i) => {
+        const start = toMinutes(s.startTime)
+        let end = toMinutes(s.endTime)
+        if (end <= start) end = 1440
+        return (
+          <span
+            key={i}
+            style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: `${(start / 1440) * 100}%`,
+              width: `${((end - start) / 1440) * 100}%`,
+              background: 'var(--ink)',
+              borderRadius: 999,
+            }}
+          />
+        )
+      })}
+    </div>
+  )
 }
 
 export default function WorklogApproval() {
-  const [from, setFrom] = useState(todayInputValue);
-  const [to, setTo] = useState(() => addYearsInputValue(todayInputValue(), 1));
-  const [view, setView] = useState("calendar");
-  const [expanded, setExpanded] = useState({});
-  const [rejecting, setRejecting] = useState({});
-  const [actionError, setActionError] = useState(null);
-  const [acting, setActing] = useState(null);
+  // Timesheets are logged after the fact, so the window reaches back.
+  const [from, setFrom] = useState(() => isoOffset(-60))
+  const [to, setTo] = useState(() => isoOffset(7))
+  const [view, setView] = useState('queue')
+  const [reviewing, setReviewing] = useState(null)
+  const [reason, setReason] = useState('')
+  const [rejectMode, setRejectMode] = useState(false)
+  const [actionError, setActionError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [acting, setActing] = useState(null)
 
-  const { data, loading, error, reload } = useFetch(
-    () => getPendingWorklogs(from, to),
-    [from, to],
-  );
+  const { data, loading, error, reload } = useFetch(() => getPendingWorklogs(from, to), [from, to])
 
-  const submitted = (data ?? []).filter((w) => w.status === "SUBMITTED");
+  const submitted = useMemo(
+    () =>
+      (data ?? [])
+        .filter((w) => w.status === 'SUBMITTED')
+        .sort((a, b) => a.workDate.localeCompare(b.workDate)),
+    [data],
+  )
+  const totalMinutes = submitted.reduce((n, w) => n + (w.totalActualMinutes ?? 0), 0)
 
   const events = useMemo(
     () =>
       submitted.flatMap((w) =>
         (w.segments ?? []).map((seg, i) => ({
           id: `${w.id}-${i}`,
-          title: `${w.employeeName ?? "Employee"}`,
+          title: w.employeeName ?? 'Contractor',
           start: `${w.workDate}T${seg.startTime}`,
           end: `${w.workDate}T${seg.endTime}`,
-          classNames: ["wb-submitted"],
+          classNames: ['wb-submitted'],
           extendedProps: { worklog: w },
         })),
       ),
     [submitted],
-  );
+  )
 
-  function toggleExpand(id) {
-    setExpanded((x) => ({ ...x, [id]: !x[id] }));
-  }
-  function startReject(id) {
-    setRejecting((r) => ({ ...r, [id]: "" }));
+  function openReview(w, reject = false) {
+    setReviewing(w)
+    setRejectMode(reject)
+    setReason('')
+    setActionError(null)
   }
 
-  async function handleAction(id, approved, reason) {
-    setActing(id);
-    setActionError(null);
+  async function decide(w, approved, why) {
+    setActing(w.id)
+    setActionError(null)
     try {
-      await approveWorklog(id, { approved, rejectionReason: reason ?? null });
-      setRejecting((r) => {
-        const n = { ...r };
-        delete n[id];
-        return n;
-      });
-      reload();
-    } catch (err) {
-      setActionError(
-        err?.response?.data?.message ?? err?.message ?? "Action failed",
-      );
-    } finally {
-      setActing(null);
-    }
-  }
-
-  function onEventClick(info) {
-    const w = info.event.extendedProps.worklog;
-    if (
-      confirm(
-        `Approve worklog for ${w.employeeName} on ${w.workDate}?\n\nCancel to reject.`,
+      await approveWorklog(w.id, { approved, rejectionReason: approved ? null : why })
+      setReviewing(null)
+      setNotice(
+        approved
+          ? `Approved ${hours(w.totalActualMinutes)} for ${w.employeeName} on ${fmtDate(w.workDate)}.`
+          : `Returned ${w.employeeName}'s timesheet for ${fmtDate(w.workDate)}.`,
       )
-    ) {
-      handleAction(w.id, true, null);
-    } else {
-      const reason = prompt("Rejection reason:");
-      if (reason && reason.trim()) handleAction(w.id, false, reason.trim());
+      reload()
+    } catch (err) {
+      setActionError(errorText(err, 'Action failed'))
+    } finally {
+      setActing(null)
     }
   }
 
   return (
-    <div>
+    <>
       <PageHeader
-        title="Worklog Approvals"
-        subtitle="Review submitted timesheets"
+        eyebrow="Delivery"
+        title="Approvals"
+        subtitle="Approved timesheets become the billing record — they are immutable once approved."
       />
-      <div style={{ padding: "24px 32px" }}>
-        {(error || actionError) && (
-          <div style={ERR}>ERROR: {error || actionError}</div>
-        )}
 
-        <div
-          style={{
-            display: "flex",
-            gap: 16,
-            alignItems: "flex-end",
-            marginBottom: 24,
-            flexWrap: "wrap",
-          }}
-        >
-          <div>
-            <label style={LABEL}>From</label>
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-              style={{ width: 160 }}
-            />
+      {error && <Alert>{error}</Alert>}
+      {notice && (
+        <Alert tone="success" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      )}
+      {!reviewing && actionError && <Alert>{actionError}</Alert>}
+
+      <Card>
+        <div className="card-header wrap">
+          <div className="cluster">
+            <Field label="From">
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </Field>
+            <Field label="To">
+              <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} />
+            </Field>
           </div>
-          <div>
-            <label style={LABEL}>To</label>
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              style={{ width: 160 }}
-            />
-          </div>
-          <Btn variant="ghost" onClick={reload}>
-            REFRESH
-          </Btn>
-          <span
-            style={{
-              fontFamily: "monospace",
-              fontSize: 11,
-              color: "#7a9ab0",
-              alignSelf: "center",
-            }}
-          >
-            {loading ? "..." : `${submitted.length} pending`}
-          </span>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            <Btn
-              small
-              variant={view === "calendar" ? "primary" : "ghost"}
-              onClick={() => setView("calendar")}
-            >
-              CALENDAR
-            </Btn>
-            <Btn
-              small
-              variant={view === "list" ? "primary" : "ghost"}
-              onClick={() => setView("list")}
-            >
-              LIST
-            </Btn>
-          </div>
+          <Tabs
+            value={view}
+            onChange={setView}
+            options={[
+              { value: 'queue', label: 'Queue', count: submitted.length },
+              { value: 'calendar', label: 'Calendar' },
+            ]}
+          />
         </div>
 
-        {loading ? (
-          <div
-            style={{ color: "#7a9ab0", fontFamily: "monospace", fontSize: 12 }}
-          >
-            Loading...
+        {!loading && submitted.length > 0 && (
+          <div className="card-body row between wrap gap-8" style={{ paddingBottom: 0 }}>
+            <span className="t-sm t-body">
+              <strong className="t-ink">{submitted.length}</strong> timesheets ·{' '}
+              <strong className="t-ink">{hours(totalMinutes)}</strong> awaiting review
+            </span>
+            <Btn small variant="ghost" icon="refresh" onClick={reload}>
+              Refresh
+            </Btn>
           </div>
-        ) : submitted.length === 0 ? (
-          <div
-            style={{
-              textAlign: "center",
-              padding: "60px 0",
-              color: "#7a9ab0",
-              fontFamily: "monospace",
-              fontSize: 13,
-            }}
-          >
-            No pending worklogs in this date range
-          </div>
-        ) : view === "calendar" ? (
-          <Calendar
-            events={events}
-            view="timeGridWeek"
-            onEventClick={onEventClick}
-            height={640}
-          />
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th>Date</th>
-                <th>Total Hours</th>
-                <th>Status</th>
-                <th>Segments</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {submitted.map((w) => (
-                <Fragment key={w.id}>
-                  <tr>
-                    <td style={{ color: "#f0f2f5" }}>
-                      {w.employeeName ?? w.employeeId ?? "—"}
-                    </td>
-                    <td>{w.workDate}</td>
-                    <td style={{ color: "#ff6b00", fontWeight: 700 }}>
-                      {(w.totalActualMinutes / 60).toFixed(2) ||
-                        totalHours(w.segments)}
-                      h
-                    </td>
-                    <td>
-                      <StatusPill value={w.status} />
-                    </td>
-                    <td>
-                      {w.segments?.length > 0 && (
-                        <Btn
-                          small
-                          variant="ghost"
-                          onClick={() => toggleExpand(w.id)}
-                        >
-                          {expanded[w.id] ? "HIDE" : `${w.segments.length} SEG`}
-                        </Btn>
-                      )}
-                    </td>
-                    <td>
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: 6,
-                          alignItems: "center",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {rejecting[w.id] === undefined ? (
-                          <>
-                            <Btn
-                              small
-                              variant="approve"
-                              disabled={acting === w.id}
-                              onClick={() => handleAction(w.id, true, null)}
-                            >
-                              APPROVE
-                            </Btn>
-                            <Btn
-                              small
-                              variant="reject"
-                              onClick={() => startReject(w.id)}
-                            >
-                              REJECT
-                            </Btn>
-                          </>
-                        ) : (
-                          <>
-                            <input
-                              value={rejecting[w.id]}
-                              onChange={(e) =>
-                                setRejecting((r) => ({
-                                  ...r,
-                                  [w.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Rejection reason"
-                              style={{ width: 180, fontSize: 11 }}
-                            />
-                            <Btn
-                              small
-                              variant="reject"
-                              disabled={acting === w.id || !rejecting[w.id]}
-                              onClick={() =>
-                                handleAction(w.id, false, rejecting[w.id])
-                              }
-                            >
-                              CONFIRM
-                            </Btn>
-                            <Btn
-                              small
-                              variant="ghost"
-                              onClick={() =>
-                                setRejecting((r) => {
-                                  const n = { ...r };
-                                  delete n[w.id];
-                                  return n;
-                                })
-                              }
-                            >
-                              CANCEL
-                            </Btn>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {expanded[w.id] &&
-                    w.segments?.map((seg, i) => (
-                      <tr
-                        key={`${w.id}-seg-${i}`}
-                        style={{ background: "#08131c" }}
-                      >
-                        <td
-                          colSpan={2}
-                          style={{
-                            paddingLeft: 32,
-                            color: "#7a9ab0",
-                            fontSize: 11,
-                          }}
-                        >
-                          Segment {i + 1}
-                        </td>
-                        <td
-                          colSpan={4}
-                          style={{ color: "#7a9ab0", fontSize: 11 }}
-                        >
-                          {seg.startTime} → {seg.endTime}
-                        </td>
-                      </tr>
-                    ))}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
         )}
-      </div>
-    </div>
-  );
+
+        {loading ? (
+          <LoadingRows />
+        ) : submitted.length === 0 ? (
+          <EmptyState icon="checkCircle" title="Nothing to review">
+            No submitted timesheets between {fmtDate(from)} and {fmtDate(to)}.
+          </EmptyState>
+        ) : view === 'calendar' ? (
+          <div className="card-body">
+            <Calendar
+              events={events}
+              view="timeGridWeek"
+              initialDate={submitted[0]?.workDate}
+              onEventClick={(info) => openReview(info.event.extendedProps.worklog)}
+              height={620}
+            />
+          </div>
+        ) : (
+          <div className="list mt-12">
+            {submitted.map((w) => (
+              <div key={w.id} className="list-item" style={{ alignItems: 'flex-start' }}>
+                <span className="avatar">{initials(w.employeeName ?? '')}</span>
+                <div className="grow">
+                  <div className="row between wrap gap-8">
+                    <div>
+                      <div className="t-label">{w.employeeName ?? 'Contractor'}</div>
+                      <div className="t-sm t-mute">
+                        {fmtDate(w.workDate)} · {(w.segments ?? []).length} segment
+                        {(w.segments ?? []).length === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <div className="t-h3 t-num">{hours(w.totalActualMinutes)}</div>
+                  </div>
+                  <div className="mt-12">
+                    <DayStrip segments={w.segments} />
+                    <div className="cluster mt-8">
+                      {(w.segments ?? []).map((s, i) => (
+                        <span key={i} className="badge badge-outline badge-plain mono">
+                          {fmtTime(s.startTime)}–{fmtTime(s.endTime)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="cluster mt-12">
+                    <Btn
+                      small
+                      variant="approve"
+                      icon="check"
+                      loading={acting === w.id}
+                      onClick={() => decide(w, true)}
+                    >
+                      Approve
+                    </Btn>
+                    <Btn small variant="reject" icon="x" onClick={() => openReview(w, true)}>
+                      Reject
+                    </Btn>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Drawer
+        open={!!reviewing}
+        onClose={() => setReviewing(null)}
+        title={rejectMode ? 'Reject timesheet' : 'Review timesheet'}
+        subtitle={reviewing ? `${reviewing.employeeName} · ${fmtDate(reviewing.workDate)}` : ''}
+        footer={
+          reviewing &&
+          (rejectMode ? (
+            <>
+              <Btn variant="secondary" onClick={() => setRejectMode(false)}>
+                Back
+              </Btn>
+              <Btn
+                variant="danger"
+                disabled={!reason.trim()}
+                loading={acting === reviewing.id}
+                onClick={() => decide(reviewing, false, reason.trim())}
+              >
+                Reject timesheet
+              </Btn>
+            </>
+          ) : (
+            <>
+              <Btn variant="reject" onClick={() => setRejectMode(true)}>
+                Reject
+              </Btn>
+              <Btn icon="check" loading={acting === reviewing.id} onClick={() => decide(reviewing, true)}>
+                Approve
+              </Btn>
+            </>
+          ))
+        }
+      >
+        {reviewing && (
+          <>
+            {actionError && <Alert>{actionError}</Alert>}
+            <div className="stat" style={{ padding: 0 }}>
+              <div className="eyebrow">Total logged</div>
+              <div className="stat-value">{hours(reviewing.totalActualMinutes)}</div>
+              <div className="stat-foot">Computed on the server from the segments below</div>
+            </div>
+            <div className="mt-24">
+              <DayStrip segments={reviewing.segments} />
+            </div>
+            <div className="card mt-16">
+              <div className="list">
+                {(reviewing.segments ?? []).map((s, i) => (
+                  <div className="list-item" key={i}>
+                    <span className="t-sm t-mute">Segment {i + 1}</span>
+                    <span className="grow" />
+                    <span className="mono t-ink">
+                      {fmtTime(s.startTime)} → {fmtTime(s.endTime)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {rejectMode && (
+              <div className="mt-24">
+              <Field label="Reason for rejection" hint="The contractor sees this and can resubmit.">
+                <textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="e.g. Hours on the 14th exceed the planned window"
+                  autoFocus
+                />
+              </Field>
+              </div>
+            )}
+          </>
+        )}
+      </Drawer>
+    </>
+  )
 }

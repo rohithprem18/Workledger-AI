@@ -4,80 +4,133 @@ import { useFetch } from '../../hooks/useFetch'
 import PageHeader from '../../components/PageHeader'
 import Btn from '../../components/Btn'
 import StatusPill from '../../components/StatusPill'
+import {
+  Alert,
+  Card,
+  DataTable,
+  EmptyState,
+  LoadingRows,
+  Stat,
+  Tabs,
+  errorText,
+  fmtDateTime,
+  money,
+} from '../../components/ui'
 
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
-}
-
+/**
+ * Finance sign-off for milestones a delivery manager has marked reached.
+ * Approving raises the fixed-amount invoice in the same transaction, and the
+ * person who marked a milestone reached cannot also approve it.
+ */
 export default function Milestones() {
-  const reached = useFetch(() => getMilestonesByStatus('REACHED'), [])
+  const [status, setStatus] = useState('REACHED')
+  const list = useFetch(() => getMilestonesByStatus(status), [status])
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
   const [busy, setBusy] = useState(null)
 
-  const list = reached.data ?? []
+  const rows = list.data ?? []
+  const total = rows.reduce((n, m) => n + Number(m.amount ?? 0), 0)
 
-  async function handleApprove(id) {
-    setBusy(id)
+  async function handleApprove(m) {
+    setBusy(m.id)
     setError(null)
     try {
-      await approveMilestone(id)
-      reached.reload()
+      await approveMilestone(m.id)
+      setNotice(`"${m.label}" approved — a ${money(m.amount)} invoice was raised as a draft.`)
+      list.reload()
     } catch (err) {
-      setError(err?.response?.data?.message ?? 'Approve failed')
+      setError(errorText(err, 'Approval failed'))
     } finally {
       setBusy(null)
     }
   }
 
-  return (
-    <div>
-      <PageHeader
-        title="Milestones"
-        subtitle="Finance · Manager-marked milestones awaiting invoicing"
-      />
-      <div style={{ padding: '24px 32px' }}>
-        {(reached.error || error) && <div style={ERR}>ERROR: {reached.error || error}</div>}
-        {reached.loading ? (
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>Loading...</div>
-        ) : list.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#7a9ab0', fontFamily: 'monospace', fontSize: 13 }}>
-            No milestones waiting for approval
+  const columns = [
+    {
+      key: 'label',
+      header: 'Milestone',
+      primary: true,
+      render: (m) => (
+        <div>
+          <div className="t-ink" style={{ fontWeight: 500 }}>
+            #{m.sequenceOrder} · {m.label}
           </div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Contract</th>
-                <th>Milestone</th>
-                <th>Threshold %</th>
-                <th>Amount</th>
-                <th>Marked At</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map(m => (
-                <tr key={m.id}>
-                  <td style={{ color: '#f0f2f5', fontWeight: 600 }}>{m.contractTitle}</td>
-                  <td>#{m.sequenceOrder} · {m.label}</td>
-                  <td style={{ color: '#7a9ab0' }}>{m.thresholdPercent != null ? `${m.thresholdPercent}%` : '—'}</td>
-                  <td style={{ color: '#ff6b00', fontWeight: 700 }}>${Number(m.amount).toFixed(2)}</td>
-                  <td>{m.markedAt?.replace('T', ' ').slice(0, 16) ?? '—'}</td>
-                  <td><StatusPill value={m.status} /></td>
-                  <td>
-                    <Btn small variant="approve" disabled={busy === m.id} onClick={() => handleApprove(m.id)}>
-                      {busy === m.id ? 'APPROVING...' : 'APPROVE & INVOICE'}
-                    </Btn>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          <div className="t-sm t-mute">{m.contractTitle}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'tasks',
+      header: 'Tasks',
+      render: (m) => (m.totalTasks ? `${m.completedTasks}/${m.totalTasks}` : '—'),
+    },
+    { key: 'marked', header: 'Reached', render: (m) => fmtDateTime(m.markedAt) },
+    { key: 'status', header: 'Status', render: (m) => <StatusPill value={m.status} /> },
+    { key: 'amount', header: 'Amount', align: 'right', render: (m) => money(m.amount) },
+  ]
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Finance"
+        title="Milestones"
+        subtitle="Approve reached milestones to raise their invoices. Each is billed exactly once."
+      />
+
+      {(list.error || error) && <Alert onClose={() => setError(null)}>{list.error || error}</Alert>}
+      {notice && (
+        <Alert tone="success" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      )}
+
+      <div className="grid grid-2" style={{ marginBottom: 24 }}>
+        <Stat
+          label={status === 'REACHED' ? 'Awaiting approval' : 'Invoiced'}
+          value={list.loading ? '—' : rows.length}
+          foot={status === 'REACHED' ? 'Marked reached by delivery' : 'Approved and billed'}
+        />
+        <Stat label="Value" value={list.loading ? '—' : money(total)} foot="Sum of milestone amounts" />
       </div>
-    </div>
+
+      <Card>
+        <div className="card-header">
+          <Tabs
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: 'REACHED', label: 'Awaiting approval' },
+              { value: 'APPROVED_INVOICED', label: 'Invoiced' },
+              { value: 'PENDING', label: 'Not reached' },
+            ]}
+          />
+        </div>
+        {list.loading ? (
+          <LoadingRows />
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={rows}
+            actions={
+              status === 'REACHED'
+                ? (m) => (
+                    <Btn small variant="approve" icon="check" loading={busy === m.id} onClick={() => handleApprove(m)}>
+                      Approve & invoice
+                    </Btn>
+                  )
+                : undefined
+            }
+            empty={
+              <EmptyState icon="flag" title="Nothing here">
+                {status === 'REACHED'
+                  ? 'No milestones are waiting for finance approval.'
+                  : 'No milestones in this state.'}
+              </EmptyState>
+            }
+          />
+        )}
+      </Card>
+    </>
   )
 }

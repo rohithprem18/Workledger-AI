@@ -1,212 +1,396 @@
 import { useState } from 'react'
-import {
-  getUsers, createUser, updateUserRoles, deactivateUser, resetUserPassword, getRoles,
-} from '../../api'
+import { getUsers, createUser, updateUserRoles, deactivateUser, resetUserPassword, getRoles } from '../../api'
 import { useFetch } from '../../hooks/useFetch'
+import { useAuth } from '../../auth/AuthContext'
 import PageHeader from '../../components/PageHeader'
 import Drawer from '../../components/Drawer'
 import Btn from '../../components/Btn'
 import StatusPill from '../../components/StatusPill'
+import {
+  Alert,
+  Card,
+  DataTable,
+  EmptyState,
+  Field,
+  LoadingRows,
+  errorText,
+  initials,
+} from '../../components/ui'
 
-const ERR = {
-  padding: '10px 16px', background: '#ef444415', color: '#ef4444',
-  borderLeft: '2px solid #ef4444', marginBottom: 16,
-  fontFamily: 'monospace', fontSize: 12,
-}
-const LABEL = {
-  display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
-  color: '#7a9ab0', fontFamily: 'ui-monospace, Consolas, monospace',
-  marginBottom: 6, textTransform: 'uppercase',
-}
-const FIELD = { marginBottom: 18 }
 const EMPTY = { username: '', email: '', password: '', roleIds: [] }
 
+/** Mirrors the API's password rules so the form fails before the round trip does. */
+function passwordProblem(pwd) {
+  if (pwd.length < 12) return 'At least 12 characters'
+  if (!/[A-Z]/.test(pwd)) return 'Add an uppercase letter'
+  if (!/[a-z]/.test(pwd)) return 'Add a lowercase letter'
+  if (!/[0-9]/.test(pwd)) return 'Add a digit'
+  if (!/[^A-Za-z0-9]/.test(pwd)) return 'Add a symbol'
+  if (/\s/.test(pwd)) return 'No spaces'
+  return null
+}
+
+function RoleChecklist({ roles, selected, onChange }) {
+  return (
+    <div className="card list">
+      {roles.map((r) => (
+        <label key={r.id} className="list-item" style={{ cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={selected.includes(r.id)}
+            onChange={() =>
+              onChange(selected.includes(r.id) ? selected.filter((x) => x !== r.id) : [...selected, r.id])
+            }
+          />
+          <div className="grow">
+            <div className="mono t-sm t-ink">{r.name}</div>
+            {r.description && <div className="t-sm t-mute">{r.description}</div>}
+          </div>
+        </label>
+      ))}
+    </div>
+  )
+}
+
 export default function Users() {
+  const { user: me } = useAuth()
   const users = useFetch(getUsers, [])
   const roles = useFetch(getRoles, [])
 
   const [createOpen, setCreateOpen] = useState(false)
-  const [form, setForm]             = useState(EMPTY)
-  const [saving, setSaving]         = useState(false)
-  const [error, setError]           = useState(null)
+  const [form, setForm] = useState(EMPTY)
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState(null)
+  const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
 
   const [rolesEditor, setRolesEditor] = useState(null)
   const [editorRoleIds, setEditorRoleIds] = useState([])
-  const [editorSaving, setEditorSaving]   = useState(false)
+  const [editorSaving, setEditorSaving] = useState(false)
 
-  const [pwdUser, setPwdUser]     = useState(null)
-  const [pwd, setPwd]             = useState('')
+  const [pwdUser, setPwdUser] = useState(null)
+  const [pwd, setPwd] = useState('')
+  const [pwdSaving, setPwdSaving] = useState(false)
 
-  const userList = users.data ?? []
+  const [confirmUser, setConfirmUser] = useState(null)
+  const [deactivating, setDeactivating] = useState(false)
+  const [query, setQuery] = useState('')
+
   const roleList = roles.data ?? []
-
-  function toggleRole(idSet, id) {
-    return idSet.includes(id) ? idSet.filter(x => x !== id) : [...idSet, id]
-  }
+  const rows = (users.data ?? []).filter((u) =>
+    `${u.username} ${u.email} ${(u.roleNames ?? []).join(' ')}`.toLowerCase().includes(query.toLowerCase()),
+  )
+  const createProblem = form.password ? passwordProblem(form.password) : null
+  const resetProblem = pwd ? passwordProblem(pwd) : null
 
   async function handleCreate(e) {
     e.preventDefault()
     setSaving(true)
-    setError(null)
+    setFormError(null)
     try {
       await createUser(form)
       setCreateOpen(false)
+      setNotice(`User ${form.username} created.`)
       setForm(EMPTY)
       users.reload()
     } catch (err) {
-      setError(err?.response?.data?.message ?? 'Create failed')
+      setFormError(errorText(err, 'Could not create the user'))
     } finally {
       setSaving(false)
     }
   }
 
-  function openRolesEditor(u) {
-    setRolesEditor(u)
-    setEditorRoleIds(u.roleIds ?? [])
-    setError(null)
-  }
-
   async function saveRoles() {
     setEditorSaving(true)
-    setError(null)
+    setFormError(null)
     try {
       await updateUserRoles(rolesEditor.id, editorRoleIds)
+      setNotice(`Roles for ${rolesEditor.username} updated.`)
       setRolesEditor(null)
       users.reload()
     } catch (err) {
-      setError(err?.response?.data?.message ?? 'Update failed')
+      setFormError(errorText(err, 'Could not update roles'))
     } finally {
       setEditorSaving(false)
     }
   }
 
-  async function handleDeactivate(id) {
+  async function handleDeactivate() {
+    setDeactivating(true)
+    setError(null)
     try {
-      await deactivateUser(id)
+      await deactivateUser(confirmUser.id)
+      setNotice(`${confirmUser.username} can no longer sign in.`)
       users.reload()
     } catch (err) {
-      setError(err?.response?.data?.message ?? 'Deactivate failed')
+      setError(errorText(err, 'Could not deactivate'))
+    } finally {
+      setDeactivating(false)
+      setConfirmUser(null)
     }
   }
 
   async function submitReset(e) {
     e.preventDefault()
+    setPwdSaving(true)
+    setFormError(null)
     try {
       await resetUserPassword(pwdUser.id, pwd)
+      setNotice(`Password reset for ${pwdUser.username}.`)
       setPwdUser(null)
       setPwd('')
     } catch (err) {
-      setError(err?.response?.data?.message ?? 'Reset failed')
+      setFormError(errorText(err, 'Could not reset the password'))
+    } finally {
+      setPwdSaving(false)
     }
   }
 
-  return (
-    <div>
-      <PageHeader
-        title="Users"
-        subtitle="HR · System users and role assignment"
-        action={<Btn onClick={() => { setForm(EMPTY); setError(null); setCreateOpen(true) }}>+ ADD USER</Btn>}
-      />
-      <div style={{ padding: '24px 32px' }}>
-        {(users.error || error) && <div style={ERR}>ERROR: {users.error || error}</div>}
-        {users.loading ? (
-          <div style={{ color: '#7a9ab0', fontFamily: 'monospace', fontSize: 12 }}>Loading...</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Username</th>
-                <th>Email</th>
-                <th>Roles</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {userList.map(u => (
-                <tr key={u.id}>
-                  <td style={{ color: '#f0f2f5', fontWeight: 600 }}>{u.username}</td>
-                  <td>{u.email}</td>
-                  <td style={{ color: '#7a9ab0', fontSize: 11 }}>{(u.roleNames ?? []).join(', ') || '—'}</td>
-                  <td><StatusPill value={u.active ? 'ACTIVE' : 'INACTIVE'} /></td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <Btn small variant="ghost" onClick={() => openRolesEditor(u)}>ROLES</Btn>
-                      <Btn small variant="ghost" onClick={() => { setPwdUser(u); setPwd('') }}>RESET PWD</Btn>
-                      {u.active && (
-                        <Btn small variant="danger" onClick={() => handleDeactivate(u.id)}>DEACTIVATE</Btn>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <Drawer open={createOpen} onClose={() => setCreateOpen(false)} title="ADD USER">
-        {error && <div style={ERR}>ERROR: {error}</div>}
-        <form onSubmit={handleCreate}>
-          <div style={FIELD}>
-            <label style={LABEL}>Username</label>
-            <input value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} required />
-          </div>
-          <div style={FIELD}>
-            <label style={LABEL}>Email</label>
-            <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
-          </div>
-          <div style={FIELD}>
-            <label style={LABEL}>Password</label>
-            <input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} required minLength={6} />
-          </div>
-          <div style={FIELD}>
-            <label style={LABEL}>Roles</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {roleList.map(r => (
-                <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#f0f2f5', fontSize: 12 }}>
-                  <input
-                    type="checkbox"
-                    checked={form.roleIds.includes(r.id)}
-                    onChange={() => setForm(f => ({ ...f, roleIds: toggleRole(f.roleIds, r.id) }))}
-                  />
-                  {r.name}
-                </label>
-              ))}
+  const columns = [
+    {
+      key: 'username',
+      header: 'User',
+      primary: true,
+      render: (u) => (
+        <div className="row gap-12">
+          <span className="avatar avatar-sm">{initials(u.username)}</span>
+          <div>
+            <div className="t-ink mono" style={{ fontWeight: 500 }}>
+              {u.username}
+              {u.username === me?.username && <span className="t-mute t-sm"> (you)</span>}
             </div>
-          </div>
-          <Btn type="submit" disabled={saving}>{saving ? 'CREATING...' : 'CREATE USER'}</Btn>
-        </form>
-      </Drawer>
-
-      <Drawer open={!!rolesEditor} onClose={() => setRolesEditor(null)} title={`ROLES — ${rolesEditor?.username ?? ''}`}>
-        {error && <div style={ERR}>ERROR: {error}</div>}
-        <div style={FIELD}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {roleList.map(r => (
-              <label key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#f0f2f5', fontSize: 12 }}>
-                <input
-                  type="checkbox"
-                  checked={editorRoleIds.includes(r.id)}
-                  onChange={() => setEditorRoleIds(ids => toggleRole(ids, r.id))}
-                />
-                {r.name}
-              </label>
-            ))}
+            <div className="t-sm t-mute t-wrap">{u.email}</div>
           </div>
         </div>
-        <Btn onClick={saveRoles} disabled={editorSaving}>{editorSaving ? 'SAVING...' : 'SAVE ROLES'}</Btn>
-      </Drawer>
-
-      <Drawer open={!!pwdUser} onClose={() => setPwdUser(null)} title={`RESET PASSWORD — ${pwdUser?.username ?? ''}`}>
-        <form onSubmit={submitReset}>
-          <div style={FIELD}>
-            <label style={LABEL}>New Password</label>
-            <input type="password" value={pwd} onChange={e => setPwd(e.target.value)} minLength={6} required />
+      ),
+    },
+    {
+      key: 'roles',
+      header: 'Roles',
+      render: (u) =>
+        (u.roleNames ?? []).length ? (
+          <div className="cluster gap-4">
+            {u.roleNames.map((r) => (
+              <span key={r} className="badge badge-outline badge-plain mono">
+                {r}
+              </span>
+            ))}
           </div>
-          <Btn type="submit">RESET</Btn>
+        ) : (
+          <span className="t-faint">None</span>
+        ),
+    },
+    { key: 'status', header: 'Status', render: (u) => <StatusPill value={u.active ? 'ACTIVE' : 'INACTIVE'} /> },
+  ]
+
+  return (
+    <>
+      <PageHeader eyebrow="People" title="Users" subtitle="Sign-in accounts and the roles that decide what each can do.">
+        <Btn
+          icon="plus"
+          onClick={() => {
+            setForm(EMPTY)
+            setFormError(null)
+            setCreateOpen(true)
+          }}
+        >
+          Add user
+        </Btn>
+      </PageHeader>
+
+      {(users.error || error) && <Alert onClose={() => setError(null)}>{users.error || error}</Alert>}
+      {notice && (
+        <Alert tone="success" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      )}
+
+      <Card>
+        <div className="card-header">
+          <input
+            type="search"
+            placeholder="Search users or roles…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{ maxWidth: 300 }}
+            aria-label="Search users"
+          />
+          <span className="t-sm t-mute t-nowrap">{rows.length} users</span>
+        </div>
+        {users.loading ? (
+          <LoadingRows />
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={rows}
+            actions={(u) => (
+              <>
+                <Btn
+                  small
+                  variant="secondary"
+                  icon="shield"
+                  onClick={() => {
+                    setRolesEditor(u)
+                    setEditorRoleIds(u.roleIds ?? [])
+                    setFormError(null)
+                  }}
+                >
+                  Roles
+                </Btn>
+                <Btn
+                  small
+                  variant="ghost"
+                  icon="key"
+                  onClick={() => {
+                    setPwdUser(u)
+                    setPwd('')
+                    setFormError(null)
+                  }}
+                >
+                  Reset
+                </Btn>
+                {u.active && u.username !== me?.username && (
+                  <Btn small variant="ghost" onClick={() => setConfirmUser(u)}>
+                    Deactivate
+                  </Btn>
+                )}
+              </>
+            )}
+            empty={<EmptyState icon="key" title="No users match" />}
+          />
+        )}
+      </Card>
+
+      <Drawer
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title="Add user"
+        subtitle="For staff accounts. Contractors are onboarded from Employees."
+        footer={
+          <>
+            <Btn variant="secondary" onClick={() => setCreateOpen(false)}>
+              Cancel
+            </Btn>
+            <Btn
+              type="submit"
+              form="user-form"
+              loading={saving}
+              disabled={!!createProblem || form.roleIds.length === 0}
+            >
+              Create user
+            </Btn>
+          </>
+        }
+      >
+        {formError && <Alert>{formError}</Alert>}
+        <form id="user-form" onSubmit={handleCreate}>
+          <Field label="Username">
+            <input
+              value={form.username}
+              onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
+              autoCapitalize="none"
+              autoComplete="off"
+              required
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              required
+            />
+          </Field>
+          <Field
+            label="Password"
+            hint={
+              createProblem ? (
+                <span className="t-warning">{createProblem}</span>
+              ) : (
+                '12+ characters with upper, lower, digit and symbol.'
+              )
+            }
+          >
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              autoComplete="new-password"
+              required
+            />
+          </Field>
+          <div className="eyebrow mt-24" style={{ marginBottom: 10 }}>
+            Roles
+          </div>
+          <RoleChecklist roles={roleList} selected={form.roleIds} onChange={(ids) => setForm((f) => ({ ...f, roleIds: ids }))} />
         </form>
       </Drawer>
-    </div>
+
+      <Drawer
+        open={!!rolesEditor}
+        onClose={() => setRolesEditor(null)}
+        title="Roles"
+        subtitle={rolesEditor?.username}
+        footer={
+          <>
+            <Btn variant="secondary" onClick={() => setRolesEditor(null)}>
+              Cancel
+            </Btn>
+            <Btn loading={editorSaving} disabled={editorRoleIds.length === 0} onClick={saveRoles}>
+              Save roles
+            </Btn>
+          </>
+        }
+      >
+        {formError && <Alert>{formError}</Alert>}
+        <RoleChecklist roles={roleList} selected={editorRoleIds} onChange={setEditorRoleIds} />
+      </Drawer>
+
+      <Drawer
+        open={!!pwdUser}
+        onClose={() => setPwdUser(null)}
+        title="Reset password"
+        subtitle={pwdUser?.username}
+        footer={
+          <>
+            <Btn variant="secondary" onClick={() => setPwdUser(null)}>
+              Cancel
+            </Btn>
+            <Btn type="submit" form="pwd-form" loading={pwdSaving} disabled={!pwd || !!resetProblem}>
+              Reset password
+            </Btn>
+          </>
+        }
+      >
+        {formError && <Alert>{formError}</Alert>}
+        <form id="pwd-form" onSubmit={submitReset}>
+          <Field
+            label="New password"
+            hint={resetProblem ? <span className="t-warning">{resetProblem}</span> : '12+ characters with upper, lower, digit and symbol.'}
+          >
+            <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} autoComplete="new-password" required />
+          </Field>
+        </form>
+      </Drawer>
+
+      <Drawer
+        open={!!confirmUser}
+        onClose={() => setConfirmUser(null)}
+        title="Deactivate user?"
+        subtitle={confirmUser?.username}
+        footer={
+          <>
+            <Btn variant="secondary" onClick={() => setConfirmUser(null)}>
+              Keep active
+            </Btn>
+            <Btn variant="danger" loading={deactivating} onClick={handleDeactivate}>
+              Deactivate
+            </Btn>
+          </>
+        }
+      >
+        <p className="t-body">Their sign-in stops working on their next request. Their history is kept.</p>
+      </Drawer>
+    </>
   )
 }
