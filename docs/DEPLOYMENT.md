@@ -1,6 +1,6 @@
 # Deployment
 
-WorkLedger AI deploys as a single Vercel project: the React app is served as static files and the API runs as one serverless function (`api/[...path].ts`). The database is PostgreSQL — Neon's free tier is the intended pairing. Everything below runs on free tiers.
+WorkLedger AI deploys as a single Vercel project: the React app is served as static files and the API runs as one serverless function (`api/index.ts`). The database is PostgreSQL — Neon's free tier is the intended pairing. Everything below runs on free tiers.
 
 ---
 

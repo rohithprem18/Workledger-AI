@@ -9,13 +9,13 @@ How WorkLedger AI is put together, and why the parts that could have been done m
 ```
 Browser ──▶ Vercel
              ├── static:   Frontend/dist  (React SPA)
-             └── function: api/[...path].ts  ──▶  Express app (server/app.ts)
+             └── function: api/index.ts  ──▶  Express app (server/app.ts)
                                                      │
                                                      ▼
                                                PostgreSQL (Neon, pooled)
 ```
 
-One Vercel project, one origin. The API is a single serverless function wrapping an Express app; a catch-all route file (`[...path]`) is used rather than a rewrite because a rewrite changes the URL the function sees, and Express would then route everything to the same path.
+One Vercel project, one origin. The API is a single serverless function wrapping an Express app. `vercel.json` rewrites every `/api/*` request to `api/index.ts`; the function still receives the original URL, so Express routes as it would on a normal server. (A `[...path]` catch-all filename is not an alternative outside Next.js — it matches only one path segment.)
 
 The code is organised by feature (`modules/`, `intelligence/`, `invoiceaudit/`) with pure domain logic isolated in `domain/`, so the rules that matter are testable without a database.
 
