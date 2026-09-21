@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { locateCitation, PAGE_SEPARATOR } from './citation.ts';
-import { detectCurrency, normalize, parseDate } from './normalize.ts';
-import { extractByPattern, mergeCandidates, type ExtractionCandidate } from './extractors.ts';
+import { locateCitation, PAGE_SEPARATOR } from './citation.js';
+import { detectCurrency, normalize, parseDate } from './normalize.js';
+import { extractByPattern, mergeCandidates, type ExtractionCandidate } from './extractors.js';
 
 const SOURCE = `MASTER SERVICES AGREEMENT
 

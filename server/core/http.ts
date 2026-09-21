@@ -1,6 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { ZodError, type ZodType } from 'zod';
-import { AppError, ValidationError } from './errors.ts';
+import { AppError, ValidationError } from './errors.js';
 
 /**
  * The response envelope every endpoint uses: `{ success, data, message }`.

@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { query, queryOne } from '../db/pool.ts';
-import { RateLimitError, UnauthorizedError } from '../core/errors.ts';
-import { handler, ok, parseBody } from '../core/http.ts';
-import { authenticate, loadAuthUser } from './middleware.ts';
-import { signAccessToken, signRefreshToken, verifyToken } from './tokens.ts';
+import { query, queryOne } from '../db/pool.js';
+import { RateLimitError, UnauthorizedError } from '../core/errors.js';
+import { handler, ok, parseBody } from '../core/http.js';
+import { authenticate, loadAuthUser } from './middleware.js';
+import { signAccessToken, signRefreshToken, verifyToken } from './tokens.js';
 
 const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),

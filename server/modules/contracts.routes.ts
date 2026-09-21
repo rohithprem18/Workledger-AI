@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, queryOne, withTransaction, type Tx } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
+import { query, queryOne, withTransaction, type Tx } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
 
 /**
  * Client contracts and the staffing requirements under them.
@@ -20,7 +20,7 @@ contractRouter.use(authenticate);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must look like 2026-04-01');
 
 const requirementSchema = z.object({
-  skillId: z.uuid('Skill is required'),
+  skillId: z.guid('Skill is required'),
   requiredEmployeeCount: z.coerce.number().int().min(1, 'Headcount must be at least 1'),
   hourlyRate: z.coerce.number().gt(0, 'Hourly rate must be positive'),
   expectedHoursPerDay: z.coerce
@@ -33,10 +33,10 @@ const requirementSchema = z.object({
 });
 
 const contractSchema = z.object({
-  companyId: z.uuid('Client company is required'),
+  companyId: z.guid('Client company is required'),
   title: z.string().trim().min(1, 'Title is required').max(255),
   description: z.string().trim().max(5000).nullish(),
-  billingTypeId: z.uuid('Billing type is required'),
+  billingTypeId: z.guid('Billing type is required'),
   startDate: isoDate,
   endDate: isoDate,
   requirements: z.array(requirementSchema).optional().default([]),

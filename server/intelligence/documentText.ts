@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { BusinessRuleError } from '../core/errors.ts';
-import { PAGE_SEPARATOR } from './citation.ts';
+import { BusinessRuleError } from '../core/errors.js';
+import { PAGE_SEPARATOR } from './citation.js';
 
 /**
  * Turns an uploaded file into the plain text every later stage reads.

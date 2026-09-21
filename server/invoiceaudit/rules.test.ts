@@ -5,8 +5,8 @@ import type {
   LineItemRow,
   ReconciliationContext,
   WorkLogRow,
-} from './context.ts';
-import { evaluateAll, RULES, verdictFor, type Finding } from './rules.ts';
+} from './context.js';
+import { evaluateAll, RULES, verdictFor, type Finding } from './rules.js';
 
 /**
  * The reconciliation rules are pure functions over the three sources, which is

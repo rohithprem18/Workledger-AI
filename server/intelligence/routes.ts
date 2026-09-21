@@ -1,20 +1,20 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { query, queryOne, withTransaction } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError, ValidationError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
-import { isAiEnabled } from '../ai/llm.ts';
-import { locateCitation } from './citation.ts';
-import { parseDocument } from './documentText.ts';
-import { detectCurrency, normalize, type ValueKind } from './normalize.ts';
+import { query, queryOne, withTransaction } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError, ValidationError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
+import { isAiEnabled } from '../ai/llm.js';
+import { locateCitation } from './citation.js';
+import { parseDocument } from './documentText.js';
+import { detectCurrency, normalize, type ValueKind } from './normalize.js';
 import {
   extractByModel,
   extractByPattern,
   mergeCandidates,
   type ExtractionCandidate,
-} from './extractors.ts';
+} from './extractors.js';
 
 /**
  * The contract-processing pipeline.
@@ -41,7 +41,7 @@ const reviewSchema = z.object({
   note: z.string().trim().max(2000).nullish(),
 });
 
-const listQuerySchema = z.object({ contractId: z.uuid().optional() });
+const listQuerySchema = z.object({ contractId: z.guid().optional() });
 
 const documentColumns = `
   d.id, d.contract_id AS "contractId", c.title AS "contractTitle",

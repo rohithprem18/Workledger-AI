@@ -1,13 +1,13 @@
-import { query, queryOne, type Tx } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { recordAudit } from '../core/audit.ts';
+import { query, queryOne, type Tx } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { recordAudit } from '../core/audit.js';
 import {
   assertKnownBillingCode,
   calculateHourly,
   calculateMilestone,
   sumLineItems,
   type LineItem,
-} from './billing.ts';
+} from './billing.js';
 
 /**
  * Invoice creation, shared by the invoice routes and by milestone approval.

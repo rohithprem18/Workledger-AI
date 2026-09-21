@@ -1,5 +1,5 @@
-import { completeJson, isAiEnabled, aiConfig, truncate } from '../ai/llm.ts';
-import { detectCurrency, normalize, VALUE_KINDS, type ValueKind } from './normalize.ts';
+import { completeJson, isAiEnabled, aiConfig, truncate } from '../ai/llm.js';
+import { detectCurrency, normalize, VALUE_KINDS, type ValueKind } from './normalize.js';
 
 /**
  * The two extraction engines, and the shape they both produce.

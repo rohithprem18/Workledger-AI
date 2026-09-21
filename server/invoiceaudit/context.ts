@@ -1,4 +1,4 @@
-import type { Tx } from '../db/pool.ts';
+import type { Tx } from '../db/pool.js';
 
 /**
  * The three authoritative sources, materialized once and handed to every rule.

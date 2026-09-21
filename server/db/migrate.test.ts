@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadMigrations } from './migrate.ts';
+import { loadMigrations } from './migrate.js';
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
 

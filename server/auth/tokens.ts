@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { randomUUID } from 'node:crypto';
-import { UnauthorizedError } from '../core/errors.ts';
+import { UnauthorizedError } from '../core/errors.js';
 
 /**
  * JWT issuing and verification.

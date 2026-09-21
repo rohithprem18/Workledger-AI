@@ -1,6 +1,6 @@
-import type { Tx } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { durationMinutes, isOvernight, overlaps, toMinutes, type TimeWindow } from './timeWindow.ts';
+import type { Tx } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { durationMinutes, isOvernight, overlaps, toMinutes, type TimeWindow } from './timeWindow.js';
 
 /**
  * Assignment eligibility, expressed once as a chain of independent rules.

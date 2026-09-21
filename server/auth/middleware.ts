@@ -1,7 +1,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
-import { query, queryOne } from '../db/pool.ts';
-import { ForbiddenError, UnauthorizedError } from '../core/errors.ts';
-import { verifyToken } from './tokens.ts';
+import { query, queryOne } from '../db/pool.js';
+import { ForbiddenError, UnauthorizedError } from '../core/errors.js';
+import { verifyToken } from './tokens.js';
 
 /** The authenticated caller, attached to the request once identified. */
 export interface AuthUser {

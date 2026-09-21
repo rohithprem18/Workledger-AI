@@ -1,4 +1,4 @@
-import { createApp } from './app.ts';
+import { createApp } from './app.js';
 
 /**
  * Local development server.

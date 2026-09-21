@@ -1,4 +1,4 @@
-import { query, type Tx } from '../db/pool.ts';
+import { query, type Tx } from '../db/pool.js';
 
 /**
  * Writes the audit trail.

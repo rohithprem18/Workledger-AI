@@ -1,4 +1,4 @@
-import { BusinessRuleError } from '../core/errors.ts';
+import { BusinessRuleError } from '../core/errors.js';
 
 /**
  * A start/end time pair on a single day, and overlap detection over them.

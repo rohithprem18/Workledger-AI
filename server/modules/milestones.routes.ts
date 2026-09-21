@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, queryOne, withTransaction } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
-import { generateMilestoneInvoice } from './invoices.service.ts';
+import { query, queryOne, withTransaction } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
+import { generateMilestoneInvoice } from './invoices.service.js';
 
 /**
  * Contract milestones and their nested task trees.
@@ -28,7 +28,7 @@ const milestoneSchema = z.object({
 const taskSchema = z.object({
   name: z.string().trim().min(1, 'Task name is required').max(255),
   description: z.string().trim().max(2000).nullish(),
-  assignedToUserId: z.uuid().nullish(),
+  assignedToUserId: z.guid().nullish(),
 });
 
 const taskStatusSchema = z.object({ status: z.enum(['PENDING', 'IN_PROGRESS', 'DONE']) });

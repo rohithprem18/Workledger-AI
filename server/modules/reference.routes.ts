@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, queryOne } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
+import { query, queryOne } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
 
 /**
  * Reference data: skills, client companies, billing types, permissions.

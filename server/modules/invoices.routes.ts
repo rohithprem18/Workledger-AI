@@ -1,24 +1,24 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, queryOne, withTransaction } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
+import { query, queryOne, withTransaction } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
 import {
   findInvoice,
   generateHourlyInvoice,
   invoiceColumns,
   invoiceFrom,
   withLineItems,
-} from './invoices.service.ts';
+} from './invoices.service.js';
 import {
   assertApprovable,
   auditInvoice,
   latestRun,
   runHistory,
   ruleCodes,
-} from '../invoiceaudit/service.ts';
+} from '../invoiceaudit/service.js';
 
 export const invoiceRouter: Router = Router();
 invoiceRouter.use(authenticate);
@@ -26,7 +26,7 @@ invoiceRouter.use(authenticate);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must look like 2026-04-01');
 
 const generateSchema = z.object({
-  contractId: z.uuid('Contract is required'),
+  contractId: z.guid('Contract is required'),
   periodStart: isoDate,
   periodEnd: isoDate,
 });

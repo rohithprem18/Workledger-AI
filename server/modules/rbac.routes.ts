@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { query, queryOne, withTransaction } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
+import { query, queryOne, withTransaction } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
 
 /**
  * Role and user administration.
@@ -19,7 +19,7 @@ rbacRouter.use(authenticate);
 
 // ------------------------------------------------------------------ roles
 
-const uuid = z.uuid('Must be a valid id');
+const uuid = z.guid('Must be a valid id');
 
 const roleCreateSchema = z.object({
   name: z

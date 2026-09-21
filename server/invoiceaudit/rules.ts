@@ -7,7 +7,7 @@ import {
   round2,
   totalApprovedHours,
   type ReconciliationContext,
-} from './context.ts';
+} from './context.js';
 
 /**
  * The reconciliation rules.

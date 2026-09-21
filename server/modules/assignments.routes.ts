@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, queryOne, withTransaction, type Tx } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
-import { assertAllSatisfied, isSatisfied, type DateRange } from '../domain/specifications.ts';
-import type { TimeWindow } from '../domain/timeWindow.ts';
+import { query, queryOne, withTransaction, type Tx } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
+import { assertAllSatisfied, isSatisfied, type DateRange } from '../domain/specifications.js';
+import type { TimeWindow } from '../domain/timeWindow.js';
 
 /**
  * Placing contractors against contract requirements.
@@ -22,8 +22,8 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must look like 202
 const isoTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, 'Time must look like 09:00');
 
 const assignmentSchema = z.object({
-  employeeId: z.uuid('Contractor is required'),
-  requirementId: z.uuid('Requirement is required'),
+  employeeId: z.guid('Contractor is required'),
+  requirementId: z.guid('Requirement is required'),
   startDate: isoDate,
   endDate: isoDate,
   plannedStartTime: isoTime,
@@ -35,7 +35,7 @@ const bulkSchema = z.object({
 });
 
 const eligibleQuerySchema = z.object({ startDate: isoDate.optional(), endDate: isoDate.optional() });
-const mineQuerySchema = z.object({ employeeId: z.uuid().optional() });
+const mineQuerySchema = z.object({ employeeId: z.guid().optional() });
 
 const assignmentColumns = `
   a.id, a.employee_id AS "employeeId",

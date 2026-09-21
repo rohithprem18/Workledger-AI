@@ -1,15 +1,15 @@
-import { query, queryOne, withTransaction, type Tx } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { recordAudit } from '../core/audit.ts';
-import { completeJson, engineLabel, isAiEnabled } from '../ai/llm.ts';
+import { query, queryOne, withTransaction, type Tx } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { recordAudit } from '../core/audit.js';
+import { completeJson, engineLabel, isAiEnabled } from '../ai/llm.js';
 import {
   approvedWorkValue,
   buildContext,
   contractAuthorisedTotal,
   invoicedTotal,
   type ReconciliationContext,
-} from './context.ts';
-import { evaluateAll, RULES, RULES_VERSION, verdictFor, type Finding, type Verdict } from './rules.ts';
+} from './context.js';
+import { evaluateAll, RULES, RULES_VERSION, verdictFor, type Finding, type Verdict } from './rules.js';
 
 /**
  * The deterministic invoice auditor.

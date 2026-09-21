@@ -1,17 +1,17 @@
 import express, { type Express } from 'express';
-import { errorHandler, handler, notFoundHandler, ok } from './core/http.ts';
-import { query } from './db/pool.ts';
-import { isAiEnabled } from './ai/llm.ts';
-import { authRouter } from './auth/routes.ts';
-import { referenceRouter } from './modules/reference.routes.ts';
-import { rbacRouter } from './modules/rbac.routes.ts';
-import { employeeRouter } from './modules/employees.routes.ts';
-import { contractRouter } from './modules/contracts.routes.ts';
-import { assignmentRouter } from './modules/assignments.routes.ts';
-import { worklogRouter } from './modules/worklogs.routes.ts';
-import { milestoneRouter } from './modules/milestones.routes.ts';
-import { invoiceRouter } from './modules/invoices.routes.ts';
-import { intelligenceRouter } from './intelligence/routes.ts';
+import { errorHandler, handler, notFoundHandler, ok } from './core/http.js';
+import { query } from './db/pool.js';
+import { isAiEnabled } from './ai/llm.js';
+import { authRouter } from './auth/routes.js';
+import { referenceRouter } from './modules/reference.routes.js';
+import { rbacRouter } from './modules/rbac.routes.js';
+import { employeeRouter } from './modules/employees.routes.js';
+import { contractRouter } from './modules/contracts.routes.js';
+import { assignmentRouter } from './modules/assignments.routes.js';
+import { worklogRouter } from './modules/worklogs.routes.js';
+import { milestoneRouter } from './modules/milestones.routes.js';
+import { invoiceRouter } from './modules/invoices.routes.js';
+import { intelligenceRouter } from './intelligence/routes.js';
 
 /**
  * Assembles the API.

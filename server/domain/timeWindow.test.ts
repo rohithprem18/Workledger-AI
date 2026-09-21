@@ -6,7 +6,7 @@ import {
   isOvernight,
   overlaps,
   toMinutes,
-} from './timeWindow.ts';
+} from './timeWindow.js';
 
 const w = (startTime: string, endTime: string) => ({ startTime, endTime });
 

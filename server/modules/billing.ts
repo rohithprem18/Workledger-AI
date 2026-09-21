@@ -1,5 +1,5 @@
-import type { Tx } from '../db/pool.ts';
-import { BusinessRuleError } from '../core/errors.ts';
+import type { Tx } from '../db/pool.js';
+import { BusinessRuleError } from '../core/errors.js';
 
 /**
  * Invoice calculation, one strategy per billing model.

@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { query, queryOne, withTransaction } from '../db/pool.ts';
-import { BusinessRuleError, NotFoundError } from '../core/errors.ts';
-import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.ts';
-import { authenticate, requirePermission } from '../auth/middleware.ts';
-import { recordAudit } from '../core/audit.ts';
-import { anyOverlap, durationMinutes, overlaps, type TimeWindow } from '../domain/timeWindow.ts';
+import { query, queryOne, withTransaction } from '../db/pool.js';
+import { BusinessRuleError, NotFoundError } from '../core/errors.js';
+import { created, handler, ok, param, parseBody, parseQuery } from '../core/http.js';
+import { authenticate, requirePermission } from '../auth/middleware.js';
+import { recordAudit } from '../core/audit.js';
+import { anyOverlap, durationMinutes, overlaps, type TimeWindow } from '../domain/timeWindow.js';
 
 /**
  * Timesheets: multiple time segments per day, submitted for approval.
@@ -26,7 +26,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must look like 202
 const isoTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/, 'Time must look like 09:00');
 
 const createSchema = z.object({
-  assignmentId: z.uuid('Assignment is required'),
+  assignmentId: z.guid('Assignment is required'),
   workDate: isoDate,
   segments: z
     .array(z.object({ startTime: isoTime, endTime: isoTime }))
@@ -41,7 +41,7 @@ const approvalSchema = z.object({
 const rangeQuerySchema = z.object({
   from: isoDate.optional(),
   to: isoDate.optional(),
-  employeeId: z.uuid().optional(),
+  employeeId: z.guid().optional(),
 });
 
 const worklogColumns = `
@@ -222,7 +222,7 @@ worklogRouter.put(
 
       await tx.query(
         `UPDATE work_logs
-            SET status = $2, approved_at = CASE WHEN $2 = 'APPROVED' THEN now() ELSE NULL END,
+            SET status = $2::varchar, approved_at = CASE WHEN $2::varchar = 'APPROVED' THEN now() ELSE NULL END,
                 approved_by = $3, rejection_reason = $4, updated_at = now()
           WHERE id = $1`,
         [
