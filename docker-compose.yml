@@ -52,8 +52,9 @@ services:
     build:
       context: ./Frontend
       args:
-        # Relative, so nginx proxies /api to the backend container.
-        VITE_API_BASE_URL: /api
+        # Absolute, because the browser runs on the host, not inside the network:
+        # it reaches the API on the published port, not at the service name.
+        VITE_API_BASE_URL: http://localhost:8080/api
     depends_on:
       - backend
     ports:
