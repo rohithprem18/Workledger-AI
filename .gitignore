@@ -42,3 +42,7 @@ graphify-out/
 .impeccable/
 __pycache__/
 .venv/
+
+.vercel
+.env*
+!.env.example
