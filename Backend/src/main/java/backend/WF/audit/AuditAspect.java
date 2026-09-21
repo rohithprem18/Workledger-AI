@@ -1,7 +1,7 @@
 package backend.WF.audit;
 
 import backend.WF.common.ApiResponse;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -20,10 +20,16 @@ import java.util.UUID;
 public class AuditAspect {
 
     private final AuditLogRepository auditLogRepository;
-    private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
-    public AuditAspect(AuditLogRepository auditLogRepository) {
+    /**
+     * The application's configured mapper, injected rather than constructed, so
+     * audit snapshots serialize dates and records exactly the way the API does.
+     */
+    private final ObjectMapper objectMapper;
+
+    public AuditAspect(AuditLogRepository auditLogRepository, ObjectMapper objectMapper) {
         this.auditLogRepository = auditLogRepository;
+        this.objectMapper = objectMapper;
     }
 
     @Around("@annotation(auditable)")
