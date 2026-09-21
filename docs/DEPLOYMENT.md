@@ -8,7 +8,7 @@ Every path below runs on free tiers end to end. Nothing here requires a paid pla
 
 | Piece | Free option | Notes |
 |---|---|---|
-| PostgreSQL | [Neon](https://neon.tech) · [Supabase](https://supabase.com) · Render Postgres | Neon has no expiry; Render's free database expires after 90 days |
+| PostgreSQL | [Neon](https://neon.tech) · [Supabase](https://supabase.com) · Render Postgres | Neon has no expiry; Render's free database expires after 30 days |
 | API | [Render](https://render.com) · [Railway](https://railway.app) · [Fly.io](https://fly.io) | Render free services sleep after ~15 min idle; first request then takes ~50s |
 | Frontend | [Vercel](https://vercel.com) · [Netlify](https://netlify.com) · Render Static | Static build, no server needed |
 | Language model | [Groq](https://console.groq.com/keys) · [Gemini](https://aistudio.google.com/apikey) · [OpenRouter](https://openrouter.ai/keys) | Entirely optional — see [Without a model](#without-a-model) |

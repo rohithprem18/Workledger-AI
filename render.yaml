@@ -6,7 +6,7 @@
 # deploy time; both are optional, and the platform runs fully without either.
 #
 # Note on the free tier: web services sleep after inactivity and the free
-# Postgres instance expires after 90 days. Fine for a demo, not for production.
+# Postgres instance expires after 30 days. Fine for a demo, not for production.
 
 databases:
   - name: workledger-db
