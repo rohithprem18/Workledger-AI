@@ -1,3 +1,0 @@
-# Environment post-processors run before the application context exists, so they
-# are discovered here rather than by component scanning.
-org.springframework.boot.EnvironmentPostProcessor=backend.WF.config.DatabaseUrlEnvironmentPostProcessor

@@ -3,21 +3,15 @@
 .env.local
 .env.*.local
 *.pem
-*.p12
-keystore*
 
 # ---------- build output ----------
-target/
 dist/
 dist-ssr/
 build/
-*.jar
-!.mvn/wrapper/maven-wrapper.jar
+.vercel/
 
 # ---------- dependencies ----------
 node_modules/
-.pnp
-.pnp.js
 
 # ---------- logs ----------
 logs/
@@ -31,16 +25,6 @@ pnpm-debug.log*
 .idea/
 .vscode/
 !.vscode/extensions.json
-*.iml
-*.ipr
-*.iws
-.project
-.classpath
-.settings/
-.factorypath
-.apt_generated/
-.springBeans
-.sts4-cache/
 *.swp
 *.swo
 *~
@@ -51,8 +35,10 @@ Thumbs.db
 .~lock.*#
 
 # ---------- tooling caches ----------
+.cache/
+coverage/
+*.tsbuildinfo
 graphify-out/
 .impeccable/
 __pycache__/
 .venv/
-HELP.md

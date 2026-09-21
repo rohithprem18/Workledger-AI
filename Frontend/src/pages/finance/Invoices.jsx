@@ -49,7 +49,7 @@ export default function Invoices() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `invoice-${inv.id}-report.pdf`
+      a.download = `invoice-${inv.id}-report.txt`
       a.click()
       URL.revokeObjectURL(url)
     } catch {
