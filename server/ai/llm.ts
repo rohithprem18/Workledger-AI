@@ -58,6 +58,87 @@ export function engineLabel(): string {
   return aiConfig().engineLabel;
 }
 
+/**
+ * Models to fall back to, best first, when the configured one has been
+ * retired. Providers retire models regularly and answer with a 404, which
+ * would otherwise silently turn every AI feature off.
+ */
+const PREFERRED_MODELS = [
+  'openai/gpt-oss-120b',
+  'llama-3.3-70b-versatile',
+  'meta-llama/llama-4-maverick-17b-128e-instruct',
+  'qwen/qwen3-32b',
+  'moonshotai/kimi-k2-instruct',
+  'openai/gpt-oss-20b',
+  'llama-3.1-8b-instant',
+];
+
+// Per warm instance: the replacement for a retired model, once found.
+let substituteModel: string | null = null;
+
+/** Asks the provider which models this key can use and picks the best one. */
+async function findSubstituteModel(config: AiConfig, signal: AbortSignal): Promise<string | null> {
+  try {
+    const response = await fetch(`${config.baseUrl}/v1/models`, {
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      signal,
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { data?: { id?: string }[] };
+    const available = new Set((body.data ?? []).map((m) => m.id).filter((id): id is string => !!id));
+    const pick =
+      PREFERRED_MODELS.find((id) => available.has(id) && id !== config.model) ??
+      // Nothing we know: any general chat model beats none. Speech, guard and
+      // embedding models cannot answer a chat prompt.
+      [...available].find((id) => !/whisper|tts|guard|embed|playai|orpheus|compound/i.test(id));
+    return pick ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function chat(
+  config: AiConfig,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+  signal: AbortSignal,
+): Promise<{ content: string | null; modelMissing: boolean }> {
+  const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      // Extraction and explanation are reporting tasks, not creative ones.
+      temperature: 0,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    // The provider's own message ("model not found", "invalid API key")
+    // is what makes a misconfiguration diagnosable from the logs.
+    const detail = await response.text().catch(() => '');
+    console.warn(
+      `Model call failed: HTTP ${response.status} from ${config.baseUrl} (model "${model}"). ${detail.slice(0, 300)}`,
+    );
+    return { content: null, modelMissing: response.status === 404 && /model/i.test(detail) };
+  }
+
+  const body = (await response.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const content = body.choices?.[0]?.message?.content?.trim();
+  return { content: content && content.length > 0 ? content : null, modelMissing: false };
+}
+
 /** Free-form completion. Null when disabled or when the call failed. */
 export async function complete(systemPrompt: string, userPrompt: string): Promise<string | null> {
   const config = aiConfig();
@@ -69,40 +150,16 @@ export async function complete(systemPrompt: string, userPrompt: string): Promis
   const timer = setTimeout(() => abort.abort(), config.timeoutMs);
 
   try {
-    const response = await fetch(`${config.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: config.model,
-        // Extraction and explanation are reporting tasks, not creative ones.
-        temperature: 0,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-      }),
-      signal: abort.signal,
-    });
+    const model = substituteModel ?? config.model;
+    const first = await chat(config, model, systemPrompt, userPrompt, abort.signal);
+    if (!first.modelMissing) return first.content;
 
-    if (!response.ok) {
-      // The provider's own message ("model not found", "invalid API key")
-      // is what makes a misconfiguration diagnosable from the logs.
-      const detail = await response.text().catch(() => '');
-      console.warn(
-        `Model call failed: HTTP ${response.status} from ${config.baseUrl} (model "${config.model}"). ` +
-          `Falling back to deterministic path. ${detail.slice(0, 300)}`,
-      );
-      return null;
-    }
-
-    const body = (await response.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const content = body.choices?.[0]?.message?.content?.trim();
-    return content && content.length > 0 ? content : null;
+    // The configured model has been retired: switch to one the key can use.
+    const replacement = await findSubstituteModel(config, abort.signal);
+    if (!replacement) return null;
+    console.warn(`Model "${model}" is unavailable; using "${replacement}" instead. Set AI_MODEL to keep this.`);
+    substituteModel = replacement;
+    return (await chat(config, replacement, systemPrompt, userPrompt, abort.signal)).content;
   } catch (error) {
     console.warn(
       'Model call failed, falling back to deterministic path:',
