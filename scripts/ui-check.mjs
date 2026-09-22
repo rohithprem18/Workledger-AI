@@ -3,6 +3,7 @@
  *
  *   node scripts/ui-check.mjs [baseUrl] [outDir]
  *   node scripts/ui-check.mjs http://localhost:5173 ui-shots
+ *   UI_ONLY=/contracts node scripts/ui-check.mjs    # just the matching pages
  *
  * Signs in through the real login screen as each role, visits every route that
  * role can reach, and records per page:
@@ -21,6 +22,9 @@ import { join } from 'node:path'
 
 const BASE = (process.argv[2] ?? 'http://localhost:5173').replace(/\/+$/, '')
 const OUT = process.argv[3] ?? 'ui-shots'
+// UI_ONLY=/contracts,/finance limits the run to pages whose path contains one of these.
+const ONLY = (process.env.UI_ONLY ?? '').split(',').filter(Boolean)
+const wanted = (path) => !ONLY.length || ONLY.some((p) => path.includes(p))
 mkdirSync(OUT, { recursive: true })
 
 const VIEWPORTS = {
@@ -129,6 +133,40 @@ async function inspect(page, label, path, issues) {
     issues.push(`horizontal overflow of ${overflow}px (${culprits.join(', ')})`)
   }
 
+  // "Standing" text: a label squeezed into so narrow a column that it stacks
+  // a letter or a word per line. Three or more lines averaging under seven
+  // characters is never an intended layout.
+  const squeezed = await page.evaluate(() => {
+    const found = []
+    for (const el of document.querySelectorAll('body *')) {
+      const textNodes = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim())
+      const own = textNodes
+        .map((n) => n.textContent)
+        .join('')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (own.length < 10) continue
+      const style = getComputedStyle(el)
+      if (style.display === 'none' || style.visibility === 'hidden') continue
+      // Distinct line tops of the element's own text, not its child blocks.
+      const tops = new Set()
+      for (const node of textNodes) {
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        for (const r of range.getClientRects()) if (r.width > 0) tops.add(Math.round(r.top))
+      }
+      const lines = tops.size
+      if (lines >= 3 && own.length / lines < 7) {
+        const r = el.getBoundingClientRect()
+        found.push(
+          `${el.tagName.toLowerCase()}.${[...el.classList].join('.')} "${own.slice(0, 30)}" ${lines} lines in ${Math.round(r.width)}px`,
+        )
+      }
+    }
+    return found.slice(0, 4)
+  })
+  for (const s of squeezed) issues.push(`squeezed text: ${s}`)
+
   const heading = await page.locator('h1').first().textContent().catch(() => null)
   const file = join(OUT, `${label}__${slug(path)}.png`)
   await page.screenshot({ path: file, fullPage: true })
@@ -181,7 +219,7 @@ for (const [device, options] of Object.entries(VIEWPORTS)) {
     await page.locator('.demo-btn', { hasText: role.user }).click()
     await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 20_000 })
 
-    for (const path of role.pages.filter(Boolean)) {
+    for (const path of role.pages.filter(Boolean).filter(wanted)) {
       issues = []
       await page.goto(`${BASE}${path}`)
       const { heading, file } = await inspect(page, `${device}__${role.user}`, path, issues)

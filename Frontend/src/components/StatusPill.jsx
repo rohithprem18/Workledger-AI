@@ -44,11 +44,11 @@ function humanize(value) {
   return value.charAt(0) + value.slice(1).toLowerCase().replace(/_/g, ' ')
 }
 
-export default function StatusPill({ value, dot = true }) {
+export default function StatusPill({ value, label, dot = true }) {
   if (!value) return null
   const key = String(value).toUpperCase()
   const tone = TONE[key] ?? 'neutral'
   return (
-    <span className={`badge badge-${tone}${dot ? '' : ' badge-plain'}`}>{humanize(key)}</span>
+    <span className={`badge badge-${tone}${dot ? '' : ' badge-plain'}`}>{label ?? humanize(key)}</span>
   )
 }

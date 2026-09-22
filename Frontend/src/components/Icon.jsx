@@ -59,7 +59,11 @@ export default function Icon({ name, size, className, strokeWidth = 1.6, ...rest
       strokeLinejoin="round"
       aria-hidden="true"
       className={className}
-      style={size ? { width: size, height: size } : undefined}
+      // Attributes rather than CSS, so a context rule (.btn svg, .nav-link svg)
+      // still wins, but an icon dropped anywhere else never renders unsized.
+      width={size ?? 16}
+      height={size ?? 16}
+      style={{ flexShrink: 0, ...(size ? { width: size, height: size } : null) }}
       {...rest}
     >
       <path d={d} />

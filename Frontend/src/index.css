@@ -1049,6 +1049,7 @@ td.cell-actions {
 }
 
 .quote {
+  margin: 0;
   padding: 10px 12px;
   border-radius: var(--r-sm);
   background: var(--canvas);
@@ -1064,6 +1065,28 @@ td.cell-actions {
 }
 .quote.unverified {
   border-left: 2px solid var(--error);
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--link);
+  cursor: pointer;
+}
+.link-btn:hover {
+  color: var(--link-deep);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* A decided attribute recedes; the ones still pending carry the page. */
+.extraction.is-decided {
+  background: var(--canvas);
+}
+.extraction.is-decided .quote {
+  background: var(--elevated);
 }
 
 .progress {
@@ -1197,12 +1220,114 @@ td.cell-actions {
   height: 14px;
 }
 
+/* --------------------------------------------------------- contract intake */
+
+/* The rail stays in view while the (long) review column scrolls. */
+.intake-rail {
+  position: sticky;
+  top: 24px;
+}
+.intake-back {
+  display: none;
+}
+.doc-list {
+  max-height: min(560px, calc(100vh - 360px));
+  min-height: 120px;
+  overflow-y: auto;
+}
+.doc-item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.doc-item:last-child {
+  border-bottom: 0;
+}
+.doc-item:hover {
+  background: var(--canvas);
+}
+.doc-item.active {
+  background: var(--canvas);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+.doc-tile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--elevated);
+  color: var(--mute);
+}
+.doc-item.active .doc-tile {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+.doc-name,
+.doc-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.doc-meta {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--mute);
+}
+.review-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--hairline);
+}
+.review-summary > div {
+  padding: 16px 20px;
+}
+.review-summary > div + div {
+  border-left: 1px solid var(--hairline);
+}
+.review-summary .num {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.family-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 10px;
+}
+
 /* ------------------------------------------------------- mobile overrides */
 
 @media (max-width: 1024px) {
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-sidebar { grid-template-columns: minmax(0, 1fr); }
+  /* Intake becomes list → detail: one column visible at a time. */
+  .intake-rail { position: static; }
+  .intake[data-view='detail'] .intake-rail,
+  .intake[data-view='list'] .intake-detail { display: none; }
+  .intake-back { display: inline-flex; align-self: flex-start; }
+  .doc-list { max-height: none; }
   .page { padding: 32px 24px 56px; }
   .auth { grid-template-columns: minmax(0, 1fr); }
   .auth-hero {
@@ -1289,6 +1414,8 @@ td.cell-actions {
     border-radius: var(--r-lg) var(--r-lg) 0 0;
     transform: translateY(100%);
   }
+  .review-summary > div { padding: 12px 14px; }
+  .review-summary .num { font-size: 18px; }
   .kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .kv dd { margin-bottom: 10px; }
   input, select, textarea { font-size: 16px; } /* prevents iOS zoom on focus */

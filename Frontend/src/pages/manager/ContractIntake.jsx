@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   getContractDocuments,
   getContractDocument,
@@ -21,8 +21,9 @@ import {
   EmptyState,
   Field,
   LoadingRows,
-  Stat,
+  Skeleton,
   errorText,
+  fmtDate,
   fmtDateTime,
 } from '../../components/ui'
 
@@ -51,16 +52,42 @@ export default function ContractIntake() {
   const [source, setSource] = useState(null)
   const [focusRow, setFocusRow] = useState(null)
 
+  const [loadingId, setLoadingId] = useState(null)
+  // The document the user most recently asked for. A slow response for an
+  // earlier click must not replace it, nor reopen one they backed out of.
+  const wanted = useRef(null)
+
   const docs = documents.data ?? []
 
-  const openDocument = useCallback(async (id) => {
+  const openDocument = useCallback(async (id, { quiet = false } = {}) => {
     setError(null)
+    // A first open shows a skeleton; a refresh after a decision keeps the
+    // current rows on screen so the list does not jump.
+    wanted.current = id
+    if (!quiet) setLoadingId(id)
     try {
-      setSelected(await getContractDocument(id))
+      const doc = await getContractDocument(id)
+      if (wanted.current === id) setSelected(doc)
     } catch (e) {
-      setError(errorText(e, 'Could not load the document'))
+      if (wanted.current === id) setError(errorText(e, 'Could not load the document'))
+    } finally {
+      if (!quiet && wanted.current === id) setLoadingId(null)
     }
   }, [])
+
+  function pick(id) {
+    if (id === selected?.id) return
+    setSelected(null)
+    setSource(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    openDocument(id)
+  }
+
+  function backToList() {
+    wanted.current = null
+    setSelected(null)
+    setLoadingId(null)
+  }
 
   async function handleUpload(e) {
     const file = e.target.files?.[0]
@@ -101,7 +128,7 @@ export default function ContractIntake() {
     setError(null)
     try {
       await reviewExtraction(extractionId, { decision, correctedValue: correctedValue ?? null })
-      await openDocument(selected.id)
+      await openDocument(selected.id, { quiet: true })
       documents.reload()
     } catch (err) {
       setError(errorText(err, 'Could not record that decision'))
@@ -113,7 +140,7 @@ export default function ContractIntake() {
     setError(null)
     try {
       await applyExtractions(id)
-      await openDocument(id)
+      await openDocument(id, { quiet: true })
       documents.reload()
       setNotice('Validated attributes applied to the contract.')
     } catch (err) {
@@ -154,11 +181,11 @@ export default function ContractIntake() {
         </Alert>
       )}
 
-      <div className="grid grid-sidebar">
+      <div className="grid grid-sidebar intake" data-view={selected || loadingId ? 'detail' : 'list'}>
         {/* ---------------------------------------------------- left rail */}
-        <div className="stack gap-16">
+        <aside className="stack gap-16 intake-rail">
           <Card pad="sm">
-            <Field label="Link to contract" hint="Needed before validated dates can be applied.">
+            <Field label="Link to contract" hint="Needed before validated terms can be applied.">
               <select value={contractId} onChange={(e) => setContractId(e.target.value)}>
                 <option value="">Review without linking</option>
                 {(contracts.data ?? []).map((c) => (
@@ -184,113 +211,158 @@ export default function ContractIntake() {
           <Card>
             <div className="card-header">
               <span className="eyebrow">Documents</span>
-              <span className="t-sm t-mute">{docs.length}</span>
+              <span className="badge badge-neutral badge-plain t-num">{docs.length}</span>
             </div>
-            {documents.loading ? (
+            {documents.loading && !documents.data ? (
               <LoadingRows rows={3} />
             ) : docs.length === 0 ? (
               <div className="card-pad-sm t-sm t-mute">Nothing uploaded yet.</div>
             ) : (
-              <div className="list" style={{ maxHeight: 420, overflowY: 'auto' }}>
-                {docs.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    className={`list-item${selected?.id === d.id ? ' active' : ''}`}
-                    onClick={() => openDocument(d.id)}
-                  >
-                    <Icon name="file" />
-                    <div className="grow">
-                      <div className="t-label t-wrap">{d.fileName}</div>
-                      <div className="t-sm t-mute t-wrap">
-                        {d.contractTitle ?? 'Unlinked'} · {d.pageCount} page{d.pageCount === 1 ? '' : 's'}
-                      </div>
-                    </div>
-                    <StatusPill value={d.status} />
-                  </button>
-                ))}
+              <div className="doc-list">
+                {docs.map((d) => {
+                  const active = (selected?.id ?? loadingId) === d.id
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      className={`doc-item${active ? ' active' : ''}`}
+                      aria-current={active ? 'true' : undefined}
+                      onClick={() => pick(d.id)}
+                    >
+                      <span className="doc-tile">
+                        {loadingId === d.id ? <span className="spinner" /> : <Icon name="file" />}
+                      </span>
+                      <span style={{ minWidth: 0 }}>
+                        <span className="doc-name" style={{ display: 'block' }} title={d.fileName}>
+                          {d.fileName}
+                        </span>
+                        <span className="doc-meta" style={{ display: 'block' }}>
+                          {d.contractTitle ?? 'Unlinked'} · {d.pageCount} page{d.pageCount === 1 ? '' : 's'}
+                        </span>
+                      </span>
+                      <StatusPill value={d.status} />
+                    </button>
+                  )
+                })}
               </div>
             )}
           </Card>
-        </div>
+        </aside>
 
         {/* ------------------------------------------------ review panel */}
-        <div className="stack gap-16" style={{ minWidth: 0 }}>
-          {!selected ? (
+        <section className="stack gap-16 intake-detail" style={{ minWidth: 0 }}>
+          <button type="button" className="btn btn-ghost btn-sm intake-back" onClick={backToList}>
+            <Icon name="arrowLeft" /> All documents
+          </button>
+
+          {loadingId && !selected ? (
+            <Card pad>
+              <div className="stack gap-12" aria-busy="true">
+                <Skeleton height={24} width="45%" />
+                <Skeleton height={14} width="65%" />
+                <Skeleton height={120} style={{ marginTop: 8 }} />
+                <Skeleton height={120} />
+              </div>
+            </Card>
+          ) : !selected ? (
             <Card>
               <EmptyState icon="sparkles" title="Pick or upload a document">
-                Try <span className="mono">docs/samples/sample-contract.txt</span> from the repository to see
-                the full flow.
+                Choose a document on the left, or upload{' '}
+                <span className="mono">docs/samples/sample-contract.txt</span> from the repository to see the
+                full flow.
               </EmptyState>
             </Card>
           ) : (
             <>
-              <Card pad>
-                <div className="row between wrap gap-12">
-                  <div className="grow">
-                    <div className="row gap-8 wrap">
-                      <h2 className="t-h2 t-wrap">{selected.fileName}</h2>
-                      <StatusPill value={selected.status} />
+              <Card>
+                <div className="card-pad">
+                  <div className="row between wrap gap-12" style={{ alignItems: 'flex-start' }}>
+                    <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+                      <div className="row gap-8 wrap">
+                        <h2 className="t-h2 t-wrap">{selected.fileName}</h2>
+                        <StatusPill value={selected.status} />
+                      </div>
+                      <div className="t-sm t-mute mt-4">
+                        {selected.contractTitle ? `Linked to ${selected.contractTitle}` : 'Not linked to a contract'}
+                        {selected.extractionEngine && ` · engine: ${selected.extractionEngine}`}
+                        {selected.extractedAt && ` · ${fmtDateTime(selected.extractedAt)}`}
+                      </div>
                     </div>
-                    <div className="t-sm t-mute mt-4">
-                      {selected.contractTitle ? `Linked to ${selected.contractTitle}` : 'Not linked to a contract'}
-                      {selected.extractionEngine && ` · engine: ${selected.extractionEngine}`}
-                      {selected.extractedAt && ` · ${fmtDateTime(selected.extractedAt)}`}
-                    </div>
-                  </div>
-                  <div className="cluster">
-                    <Btn
-                      variant={rows.length ? 'secondary' : 'primary'}
-                      icon="sparkles"
-                      loading={busy === 'extract'}
-                      disabled={selected.status === 'APPLIED'}
-                      onClick={() => handleExtract(selected.id)}
-                    >
-                      {rows.length ? 'Re-extract' : 'Run extraction'}
-                    </Btn>
-                    {rows.length > 0 && (
+                    <div className="cluster">
                       <Btn
-                        icon="check"
-                        loading={busy === 'apply'}
-                        disabled={!canApply}
-                        onClick={() => handleApply(selected.id)}
-                        title={
-                          !selected.contractId
-                            ? 'Link this document to a contract first'
-                            : pending
-                              ? 'Review every attribute first'
-                              : undefined
-                        }
+                        variant={rows.length ? 'secondary' : 'primary'}
+                        icon="sparkles"
+                        loading={busy === 'extract'}
+                        disabled={selected.status === 'APPLIED'}
+                        onClick={() => handleExtract(selected.id)}
                       >
-                        Apply to contract
+                        {rows.length ? 'Re-extract' : 'Run extraction'}
                       </Btn>
-                    )}
+                      {rows.length > 0 && (
+                        <Btn
+                          icon="check"
+                          loading={busy === 'apply'}
+                          disabled={!canApply}
+                          onClick={() => handleApply(selected.id)}
+                          title={
+                            !selected.contractId
+                              ? 'Link this document to a contract first'
+                              : pending
+                                ? 'Review every attribute first'
+                                : undefined
+                          }
+                        >
+                          Apply to contract
+                        </Btn>
+                      )}
+                    </div>
                   </div>
+
+                  {rows.length > 0 && (
+                    <div className="mt-16">
+                      <div className="row between t-sm" style={{ marginBottom: 6 }}>
+                        <span className="t-mute">Review progress</span>
+                        <span className="t-num t-ink">
+                          {rows.length - pending} of {rows.length} decided
+                        </span>
+                      </div>
+                      <div className="progress">
+                        <span style={{ width: `${((rows.length - pending) / rows.length) * 100}%` }} />
+                      </div>
+                      {!selected.contractId && selected.status !== 'APPLIED' && (
+                        <div className="t-sm t-warning mt-8">
+                          Not linked to a contract — decisions are saved, but can't be applied yet.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {selected.extractionError && (
+                    <div className="mt-16">
+                      <Alert>{selected.extractionError}</Alert>
+                    </div>
+                  )}
                 </div>
-                {selected.extractionError && (
-                  <div className="mt-16">
-                    <Alert>{selected.extractionError}</Alert>
+
+                {rows.length > 0 && (
+                  <div className="review-summary">
+                    <div>
+                      <div className="eyebrow">Attributes</div>
+                      <div className="num mt-4">{rows.length}</div>
+                    </div>
+                    <div>
+                      <div className="eyebrow">To review</div>
+                      <div className={`num mt-4 ${pending ? 't-warning' : 't-success'}`}>{pending}</div>
+                    </div>
+                    <div>
+                      <div className="eyebrow">Cited</div>
+                      <div className={`num mt-4 ${verified === rows.length ? 't-success' : 't-warning'}`}>
+                        {verified}/{rows.length}
+                      </div>
+                    </div>
                   </div>
                 )}
               </Card>
-
-              {rows.length > 0 && (
-                <div className="grid grid-3">
-                  <Stat label="Attributes" value={rows.length} foot="Across four families" />
-                  <Stat
-                    label="Awaiting review"
-                    value={pending}
-                    tone={pending ? 'warning' : 'success'}
-                    foot={pending ? 'Decide on each before applying' : 'All decided'}
-                  />
-                  <Stat
-                    label="Citations verified"
-                    value={`${verified}/${rows.length}`}
-                    tone={verified === rows.length ? 'success' : 'warning'}
-                    foot="Quote found verbatim in the source"
-                  />
-                </div>
-              )}
 
               {rows.length === 0 ? (
                 <Card>
@@ -303,11 +375,13 @@ export default function ContractIntake() {
                 TYPE_ORDER.map((type) => {
                   const group = rows.filter((r) => r.attributeType === type)
                   if (group.length === 0) return null
+                  const open = group.filter((r) => r.reviewStatus === 'PENDING').length
                   return (
                     <div key={type}>
-                      <div className="row between" style={{ marginBottom: 10 }}>
+                      <div className="family-head">
                         <h3 className="t-h3">{TYPE_LABEL[type]}</h3>
-                        <span className="t-sm t-mute">{group.length}</span>
+                        <span className="badge badge-neutral badge-plain t-num">{group.length}</span>
+                        {open > 0 && <span className="t-sm t-warning">{open} to review</span>}
                       </div>
                       <div className="stack gap-12">
                         {group.map((row) => (
@@ -326,7 +400,7 @@ export default function ContractIntake() {
               )}
             </>
           )}
-        </div>
+        </section>
       </div>
 
       <Drawer
@@ -365,67 +439,96 @@ function SourceView({ text, row }) {
   )
 }
 
+/**
+ * Values are stored as normalised strings (\`9600000\`, \`2027-03-31\`); show them
+ * the way a person reads a contract. Anything unparseable is shown as-is.
+ */
+function displayValue(row) {
+  const value = row.effectiveValue ?? row.rawValue
+  if (value == null || value === '') return '—'
+  const n = Number(value)
+  if (row.valueKind === 'MONEY' && Number.isFinite(n)) {
+    try {
+      return new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: row.currency || 'INR',
+        minimumFractionDigits: Number.isInteger(n) ? 0 : 2,
+        maximumFractionDigits: 2,
+      }).format(n)
+    } catch {
+      return `${n.toLocaleString('en-IN')} ${row.currency ?? ''}`.trim()
+    }
+  }
+  if (row.valueKind === 'DATE') return fmtDate(value)
+  if (row.valueKind === 'NUMBER' && Number.isFinite(n)) return n.toLocaleString('en-IN')
+  return value
+}
+
+const DECISION_LABEL = { ACCEPTED: 'Accepted', EDITED: 'Corrected', REJECTED: 'Rejected' }
+
 function ExtractionRow({ row, frozen, onReview, onShowSource }) {
   const [editing, setEditing] = useState(false)
+  const [reopened, setReopened] = useState(false)
   const [draft, setDraft] = useState(row.effectiveValue ?? row.rawValue ?? '')
   const confidence = Math.round((Number(row.confidence) || 0) * 100)
+  const decided = row.reviewStatus !== 'PENDING'
+  // Decided rows fold their buttons away so the eye goes to what is left.
+  const showActions = !frozen && (!decided || reopened)
+
+  function decide(decision, value) {
+    setEditing(false)
+    setReopened(false)
+    onReview(row.id, decision, value)
+  }
 
   return (
-    <Card pad="sm">
+    <Card pad="sm" className={`extraction${decided ? ' is-decided' : ''}`}>
       <div className="row between gap-12" style={{ alignItems: 'flex-start' }}>
         <div className="grow">
           <div className="eyebrow">{row.fieldLabel}</div>
-          <div className="t-h3 mt-4 t-wrap">
-            {row.effectiveValue ?? row.rawValue ?? '—'}
-            {row.currency && <span className="t-mute mono t-sm"> {row.currency}</span>}
+          <div className={`t-h3 mt-4 t-wrap${row.reviewStatus === 'REJECTED' ? ' t-mute' : ''}`}>
+            {row.reviewStatus === 'REJECTED' ? <s>{displayValue(row)}</s> : displayValue(row)}
           </div>
           {row.rawValue && row.rawValue !== row.effectiveValue && (
-            <div className="t-sm t-mute mt-4">As written: “{row.rawValue}”</div>
+            <div className="t-sm t-mute mt-4 t-wrap">As written: “{row.rawValue}”</div>
           )}
         </div>
-        <div className="stack gap-4" style={{ alignItems: 'flex-end' }}>
-          <StatusPill value={row.reviewStatus} />
-          <span className="t-sm t-mute t-num">{confidence}% confidence</span>
-        </div>
+        <StatusPill value={row.reviewStatus} label={DECISION_LABEL[row.reviewStatus]} />
       </div>
 
-      <div className={`quote mt-12 ${row.citationVerified ? 'verified' : 'unverified'}`}>
-        <div className="row between gap-8" style={{ marginBottom: 6 }}>
-          <span
-            className={`t-sm ${row.citationVerified ? 't-success' : 't-error'}`}
-            style={{ fontFamily: 'var(--sans)', fontWeight: 500 }}
-          >
+      <blockquote className={`quote mt-12 ${row.citationVerified ? 'verified' : 'unverified'}`}>
+        {row.citationQuote ? `“${row.citationQuote}”` : 'No supporting quote was produced.'}
+      </blockquote>
+
+      <div className="row between wrap gap-8 mt-8 t-sm">
+        <div className="row gap-8 wrap">
+          <span className={row.citationVerified ? 't-success' : 't-error'} style={{ fontWeight: 500 }}>
             {row.citationVerified
-              ? `Found in source${row.citationPage ? ` · page ${row.citationPage}` : ''}`
+              ? `Found in source${row.citationPage ? ` · p.${row.citationPage}` : ''}`
               : 'Not found in source — verify manually'}
           </span>
           {row.citationVerified && (
-            <button type="button" className="btn btn-ghost btn-sm" onClick={onShowSource}>
-              <Icon name="eye" /> View
+            <button type="button" className="link-btn" onClick={onShowSource}>
+              View in document
             </button>
           )}
         </div>
-        {row.citationQuote ? `“${row.citationQuote}”` : 'No supporting quote was produced.'}
+        <span className="t-mute t-num">{confidence}% confidence</span>
       </div>
 
-      {!frozen &&
+      {showActions &&
         (editing ? (
           <div className="row gap-8 wrap mt-12">
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              style={{ flex: 1, minWidth: 180 }}
+              style={{ flex: '1 1 180px', minWidth: 0 }}
               placeholder={`Corrected ${row.valueKind.toLowerCase()} value`}
               aria-label="Corrected value"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && draft.trim() && decide('EDITED', draft.trim())}
             />
-            <Btn
-              small
-              icon="check"
-              onClick={() => {
-                setEditing(false)
-                onReview(row.id, 'EDITED', draft)
-              }}
-            >
+            <Btn small icon="check" disabled={!draft.trim()} onClick={() => decide('EDITED', draft.trim())}>
               Save
             </Btn>
             <Btn small variant="ghost" onClick={() => setEditing(false)}>
@@ -433,8 +536,8 @@ function ExtractionRow({ row, frozen, onReview, onShowSource }) {
             </Btn>
           </div>
         ) : (
-          <div className="cluster mt-12">
-            <Btn small variant="approve" icon="check" onClick={() => onReview(row.id, 'ACCEPTED')}>
+          <div className="cluster mt-12 extraction-actions">
+            <Btn small variant="approve" icon="check" onClick={() => decide('ACCEPTED')}>
               Accept
             </Btn>
             <Btn
@@ -448,11 +551,24 @@ function ExtractionRow({ row, frozen, onReview, onShowSource }) {
             >
               Correct
             </Btn>
-            <Btn small variant="reject" icon="x" onClick={() => onReview(row.id, 'REJECTED')}>
+            <Btn small variant="reject" icon="x" onClick={() => decide('REJECTED')}>
               Reject
             </Btn>
+            {reopened && (
+              <Btn small variant="ghost" onClick={() => setReopened(false)}>
+                Keep decision
+              </Btn>
+            )}
           </div>
         ))}
+
+      {!frozen && decided && !reopened && (
+        <div className="mt-8">
+          <button type="button" className="link-btn t-sm" onClick={() => setReopened(true)}>
+            Change decision
+          </button>
+        </div>
+      )}
     </Card>
   )
 }
