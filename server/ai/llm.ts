@@ -43,8 +43,8 @@ export function aiConfig(): AiConfig {
     // `/v1/chat/completions` is appended below, so accept a base URL given
     // either with or without its `/v1` suffix.
     baseUrl: (env('AI_BASE_URL') ?? 'https://api.groq.com/openai').replace(/\/+$/, '').replace(/\/v1$/, ''),
-    model: env('AI_MODEL') ?? 'llama-3.3-70b-versatile',
-    engineLabel: env('AI_ENGINE_LABEL') ?? 'groq/llama-3.3-70b',
+    model: env('AI_MODEL') ?? 'openai/gpt-oss-120b',
+    engineLabel: env('AI_ENGINE_LABEL') ?? 'groq/gpt-oss-120b',
     maxSourceChars: Number(process.env.AI_MAX_SOURCE_CHARS ?? 24_000),
     timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 45_000),
   };
