@@ -23,16 +23,28 @@ export interface AiConfig {
   timeoutMs: number;
 }
 
+/**
+ * Values pasted into a hosting dashboard or piped into a CLI often carry a
+ * trailing newline or spaces, which turn a correct model name or URL into a
+ * 404. Trim everything, and treat blank as unset.
+ */
+function env(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
 export function aiConfig(): AiConfig {
-  const apiKey = process.env.AI_API_KEY ?? '';
+  const apiKey = env('AI_API_KEY') ?? '';
   return {
     // Off unless explicitly enabled *and* a key exists, so a half-configured
     // deployment quietly uses the deterministic engines instead of failing.
-    enabled: process.env.AI_ENABLED === 'true' && apiKey.length > 0,
+    enabled: env('AI_ENABLED')?.toLowerCase() === 'true' && apiKey.length > 0,
     apiKey,
-    baseUrl: (process.env.AI_BASE_URL ?? 'https://api.groq.com/openai').replace(/\/+$/, ''),
-    model: process.env.AI_MODEL ?? 'llama-3.3-70b-versatile',
-    engineLabel: process.env.AI_ENGINE_LABEL ?? 'groq/llama-3.3-70b',
+    // `/v1/chat/completions` is appended below, so accept a base URL given
+    // either with or without its `/v1` suffix.
+    baseUrl: (env('AI_BASE_URL') ?? 'https://api.groq.com/openai').replace(/\/+$/, '').replace(/\/v1$/, ''),
+    model: env('AI_MODEL') ?? 'llama-3.3-70b-versatile',
+    engineLabel: env('AI_ENGINE_LABEL') ?? 'groq/llama-3.3-70b',
     maxSourceChars: Number(process.env.AI_MAX_SOURCE_CHARS ?? 24_000),
     timeoutMs: Number(process.env.AI_TIMEOUT_MS ?? 45_000),
   };
@@ -76,7 +88,13 @@ export async function complete(systemPrompt: string, userPrompt: string): Promis
     });
 
     if (!response.ok) {
-      console.warn(`Model call failed: HTTP ${response.status}. Falling back to deterministic path.`);
+      // The provider's own message ("model not found", "invalid API key")
+      // is what makes a misconfiguration diagnosable from the logs.
+      const detail = await response.text().catch(() => '');
+      console.warn(
+        `Model call failed: HTTP ${response.status} from ${config.baseUrl} (model "${config.model}"). ` +
+          `Falling back to deterministic path. ${detail.slice(0, 300)}`,
+      );
       return null;
     }
 
