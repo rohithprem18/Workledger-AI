@@ -141,7 +141,7 @@ the right permissions.
 | Audit logging                                                         | **AOP interceptor / annotation-driven**                                              | `@Auditable(action = "...", entityType = "...")` on service methods; an aspect captures before/after state as JSONB. No manual audit calls inside business logic.                                                                                                                                                      |
 | Time-segment overlap detection                                        | **Isolated domain service**, pure logic                                              | `OverlapChecker` — no persistence dependency, heavily unit tested, explicitly handles overnight shifts (e.g. 22:00–02:00 crossing midnight). Used by both assignment-time collision checks and work-log-time collision checks.                                                                                         |
 
-### Why this matters for how Claude Code should build it
+### Why this matters for how it should be built
 
 - Do not let the auto-allocation algorithm (Phase 2) touch the
   `assignments` table directly. It must produce a ranked list of candidates
